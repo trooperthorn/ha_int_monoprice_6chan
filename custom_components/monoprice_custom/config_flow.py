@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 from pymonoprice import get_monoprice
+import serial
 from serial import SerialException
 import serial.tools.list_ports
 import voluptuous as vol
@@ -52,10 +53,7 @@ def _sources_from_config(data: dict[str, Any]) -> dict[str, str]:
 
 
 async def validate_input(hass: core.HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input allows us to connect.
-
-    Data has the keys from DATA_SCHEMA with values provided by the user.
-    """
+    """Validate the user input allows us to connect."""
     try:
         # Wrapped in executor to maintain async standards
         await hass.async_add_executor_job(get_monoprice, data[CONF_PORT])
@@ -74,9 +72,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ):
+    async def async_step_user(self, user_input: dict[str, Any] | None = None):
         """Handle the initial step."""
         errors = {}
 
@@ -90,19 +86,45 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
 
-        # Dynamically scan ports in executor job (Platinum requirement)
-        ports = await self.hass.async_add_executor_job(serial.tools.list_ports.comports)
-        
-        # Build the dropdown options
-        port_options = [
-            {
-                "value": port.device,
-                "label": f"{port.device} - {port.description}" if port.description and port.description != "n/a" else port.device,
-            }
-            for port in ports
-        ]
+        # 1. Get a list of ports currently configured across all HA integration entries
+        ha_configured_ports = {
+            entry.data.get(CONF_PORT)
+            for entry in self.hass.config_entries.async_entries()
+            if CONF_PORT in entry.data
+        }
 
-        # Build schema using the dynamic dropdown alongside the sources
+        # 2. Hardware/Registry Probe logic
+        def _get_port_status(port):
+            device_path = port.device
+            is_in_use = False
+
+            # Check HA integration registry first
+            if device_path in ha_configured_ports:
+                is_in_use = True
+            else:
+                # Hardware Probe: Try to open port briefly
+                try:
+                    test_conn = serial.Serial(device_path)
+                    test_conn.close()
+                except (SerialException, PermissionError, OSError):
+                    is_in_use = True
+
+            label = f"{device_path} - {port.description}" if port.description and port.description != "n/a" else device_path
+            if is_in_use:
+                label = f"{label} (In Use)"
+
+            return {
+                "value": device_path,
+                "label": label,
+            }
+
+        # 3. Offload serial port scanning & hardware probing to the executor
+        ports = await self.hass.async_add_executor_job(serial.tools.list_ports.comports)
+        port_options = await self.hass.async_add_executor_job(
+            lambda: [_get_port_status(p) for p in ports]
+        )
+
+        # Build schema using dynamic dropdown alongside source renaming options
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_PORT): selector.SelectSelector(
@@ -153,9 +175,7 @@ class MonopriceOptionsFlowHandler(config_entries.OptionsFlow):
 
         return previous
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ):
+    async def async_step_init(self, user_input: dict[str, Any] | None = None):
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(
