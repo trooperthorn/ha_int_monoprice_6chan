@@ -36,8 +36,8 @@ class MonopriceData:
     coordinator: MonopriceCoordinator
     first_run: bool
 
-# Platinum strict typing for the config entry
-type MonopriceConfigEntry = ConfigEntry[MonopriceData]
+# Backwards-compatible typing
+MonopriceConfigEntry = ConfigEntry
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MonopriceConfigEntry) -> bool:
