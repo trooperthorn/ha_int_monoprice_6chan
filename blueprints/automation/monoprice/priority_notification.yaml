@@ -1,0 +1,57 @@
+blueprint:
+  name: Monoprice Zone Interrupt / Priority Notification
+  description: Snapshots specified zones, plays a notification, and restores previous volume, power, and source states.
+  domain: automation
+  input:
+    target_zones:
+      name: Target Monoprice Zones
+      selector:
+        target:
+          entity:
+            filter:
+              - domain: media_player
+                integration: monoprice
+    trigger_event:
+      name: Trigger Sensor (e.g., Doorbell)
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+    announcement_message:
+      name: TTS Message
+      default: "Attention: Someone is at the front door."
+      selector:
+        text:
+
+trigger:
+  - platform: state
+    entity_id: !input trigger_event
+    to: "on"
+
+action:
+  # 1. Save state
+  - action: monoprice.snapshot
+    target: !input target_zones
+
+  # 2. Prep zones for announcement
+  - action: media_player.turn_on
+    target: !input target_zones
+  - action: media_player.volume_set
+    target: !input target_zones
+    data:
+      volume_level: 0.50
+
+  # 3. Play notification (using your preferred TTS service)
+  - action: tts.speak
+    target:
+      entity_id: tts.google_en_com
+    data:
+      media_player_entity_id: !input target_zones
+      message: !input announcement_message
+
+  - delay:
+      seconds: 5
+
+  # 4. Restore original state
+  - action: monoprice.restore
+    target: !input target_zones
