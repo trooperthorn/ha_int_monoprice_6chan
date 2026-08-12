@@ -1,0 +1,40 @@
+blueprint:
+  name: Monoprice Zone Auto-Power Off
+  description: Automatically turns off a Monoprice zone when the room is vacant or the source goes idle.
+  domain: automation
+  input:
+    monoprice_zone:
+      name: Monoprice Zone
+      selector:
+        entity:
+          filter:
+            - domain: media_player
+              integration: monoprice
+    occupancy_sensor:
+      name: Presence/Motion Sensor (Optional)
+      default: []
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+              device_class: occupancy
+    no_motion_wait:
+      name: Delay before turning off
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: minutes
+
+trigger:
+  - platform: state
+    entity_id: !input occupancy_sensor
+    to: "off"
+    for:
+      minutes: !input no_motion_wait
+
+action:
+  - action: media_player.turn_off
+    target:
+      entity_id: !input monoprice_zone
