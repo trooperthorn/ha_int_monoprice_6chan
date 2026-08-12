@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from pymonoprice import get_monoprice
 from serial import SerialException
+import serial.tools.list_ports
 import voluptuous as vol
 
 from homeassistant import config_entries, core, exceptions
 from homeassistant.const import CONF_PORT
+from homeassistant.helpers import selector
 
 from .const import (
     CONF_SOURCE_1,
@@ -33,10 +36,10 @@ SOURCES = [
 ]
 
 OPTIONS_FOR_DATA = {vol.Optional(source): str for source in SOURCES}
-DATA_SCHEMA = vol.Schema({vol.Required(CONF_PORT): str, **OPTIONS_FOR_DATA})
+
 
 @core.callback
-def _sources_from_config(data):
+def _sources_from_config(data: dict[str, Any]) -> dict[str, str]:
     sources_config = {
         str(idx + 1): data.get(source) for idx, source in enumerate(SOURCES)
     }
@@ -48,19 +51,19 @@ def _sources_from_config(data):
     }
 
 
-async def validate_input(hass: core.HomeAssistant, data):
+async def validate_input(hass: core.HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     """Validate the user input allows us to connect.
 
     Data has the keys from DATA_SCHEMA with values provided by the user.
     """
     try:
+        # Wrapped in executor to maintain async standards
         await hass.async_add_executor_job(get_monoprice, data[CONF_PORT])
     except SerialException as err:
         _LOGGER.error("Error connecting to Monoprice controller %s", data[CONF_PORT])
         raise CannotConnect from err
 
     sources = _sources_from_config(data)
-
 
     # Return info that you want to store in the config entry.
     return {CONF_PORT: data[CONF_PORT], CONF_SOURCES: sources}
@@ -71,13 +74,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
         """Handle the initial step."""
         errors = {}
+
         if user_input is not None:
             try:
                 info = await validate_input(self.hass, user_input)
-
                 return self.async_create_entry(title=user_input[CONF_PORT], data=info)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
@@ -85,8 +90,34 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
 
+        # Dynamically scan ports in executor job (Platinum requirement)
+        ports = await self.hass.async_add_executor_job(serial.tools.list_ports.comports)
+        
+        # Build the dropdown options
+        port_options = [
+            selector.SelectOptionDict(
+                value=port.device,
+                label=f"{port.device} - {port.description}" if port.description and port.description != "n/a" else port.device,
+            )
+            for port in ports
+        ]
+
+        # Build schema using the dynamic dropdown alongside the sources
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_PORT): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=port_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        custom_value=True,
+                    )
+                ),
+                **OPTIONS_FOR_DATA,
+            }
+        )
+
         return self.async_show_form(
-            step_id="user", data_schema=DATA_SCHEMA, errors=errors
+            step_id="user", data_schema=data_schema, errors=errors
         )
 
     @staticmethod
@@ -99,7 +130,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 @core.callback
-def _key_for_source(index, source, previous_sources):
+def _key_for_source(index: int, source: str, previous_sources: dict[str, Any]) -> vol.Optional:
     if str(index) in previous_sources:
         key = vol.Optional(
             source, description={"suggested_value": previous_sources[str(index)]}
@@ -118,7 +149,7 @@ class MonopriceOptionsFlowHandler(config_entries.OptionsFlow):
         self.config_entry = config_entry
 
     @core.callback
-    def _previous_sources(self):
+    def _previous_sources(self) -> dict[str, Any]:
         if CONF_SOURCES in self.config_entry.options:
             previous = self.config_entry.options[CONF_SOURCES]
         else:
@@ -126,7 +157,9 @@ class MonopriceOptionsFlowHandler(config_entries.OptionsFlow):
 
         return previous
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(
