@@ -1,0 +1,29 @@
+alias: "Audio: Party Mode All Zones"
+sequence:
+  # Turn on all background zones
+  - action: media_player.turn_on
+    target:
+      entity_id:
+        - media_player.patio_zone
+        - media_player.kitchen_zone
+        - media_player.living_room_zone
+  # Align all to Source 1 (Main Feed)
+  - action: media_player.select_source
+    target:
+      entity_id:
+        - media_player.patio_zone
+        - media_player.kitchen_zone
+        - media_player.living_room_zone
+    data:
+      source: "Source 1"
+  # Set ambient volume levels per room
+  - action: media_player.volume_set
+    target:
+      entity_id: media_player.kitchen_zone
+    data:
+      volume_level: 0.35
+  - action: media_player.volume_set
+    target:
+      entity_id: media_player.patio_zone
+    data:
+      volume_level: 0.50
