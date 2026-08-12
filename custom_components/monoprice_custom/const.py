@@ -1,5 +1,16 @@
 """Constants for the Monoprice 6-Zone Amplifier Media Player component."""
+from homeassistant.const import Platform
 
+DOMAIN = "monoprice"
+CONF_PORT = "port"
+
+PLATFORMS = [
+    Platform.MEDIA_PLAYER,
+    Platform.REMOTE,
+    Platform.NUMBER,
+    Platform.SWITCH,
+    Platform.SENSOR,
+]
 DOMAIN = "monoprice"
 
 CONF_SOURCES = "sources"
