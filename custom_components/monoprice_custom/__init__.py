@@ -1,5 +1,6 @@
 """The Monoprice 6-Zone Amplifier integration."""
 import logging
+from dataclasses import dataclass
 
 from pymonoprice import get_monoprice
 from serial import SerialException
@@ -9,28 +10,52 @@ from homeassistant.const import CONF_PORT, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
+# MONOPRICE_OBJECT and UNDO_UPDATE_LISTENER were removed from .const
 from .const import (
     CONF_NOT_FIRST_RUN,
     DOMAIN,
     FIRST_RUN,
-    MONOPRICE_OBJECT,
-    UNDO_UPDATE_LISTENER,
 )
+from .coordinator import MonopriceCoordinator
 
-PLATFORMS = [Platform.MEDIA_PLAYER, Platform.SENSOR, Platform.NUMBER]
+# Added SWITCH and REMOTE to support the new features
+PLATFORMS = [
+    Platform.MEDIA_PLAYER, 
+    Platform.SENSOR, 
+    Platform.NUMBER,
+    Platform.SWITCH,
+    Platform.REMOTE
+]
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+@dataclass
+class MonopriceData:
+    """Class to hold runtime data for the Monoprice integration."""
+    coordinator: MonopriceCoordinator
+    first_run: bool
+
+# Platinum strict typing for the config entry
+type MonopriceConfigEntry = ConfigEntry[MonopriceData]
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: MonopriceConfigEntry) -> bool:
     """Set up Monoprice 6-Zone Amplifier from a config entry."""
     port = entry.data[CONF_PORT]
 
     try:
+        # Spin up the synchronous serial connection in the executor
         monoprice = await hass.async_add_executor_job(get_monoprice, port)
     except SerialException as err:
         _LOGGER.error("Error connecting to Monoprice controller at %s", port)
         raise ConfigEntryNotReady from err
+
+    # Initialize the coordinator
+    coordinator = MonopriceCoordinator(hass, monoprice)
+    
+    # Fetch initial state before loading platforms so entities don't boot as "Unavailable"
+    await coordinator.async_config_entry_first_refresh()
 
     # double negative to handle absence of value
     first_run = not bool(entry.data.get(CONF_NOT_FIRST_RUN))
@@ -40,29 +65,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             entry, data={**entry.data, CONF_NOT_FIRST_RUN: True}
         )
 
-    undo_listener = entry.add_update_listener(_update_listener)
+    # Modern listener registration - HA automatically cleans this up on unload
+    entry.async_on_unload(entry.add_update_listener(_update_listener))
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
-        MONOPRICE_OBJECT: monoprice,
-        UNDO_UPDATE_LISTENER: undo_listener,
-        FIRST_RUN: first_run,
-    }
+    # Platinum standard: Use entry.runtime_data instead of hass.data
+    entry.runtime_data = MonopriceData(
+        coordinator=coordinator,
+        first_run=first_run
+    )
 
+    # Load all defined platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: MonopriceConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN][entry.entry_id][UNDO_UPDATE_LISTENER]()
-        hass.data[DOMAIN].pop(entry.entry_id)
-
-    return unload_ok
+    # The undo_listener and hass.data.pop() logic is no longer needed.
+    # async_on_unload handles the listener, and runtime_data is destroyed automatically.
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
-async def _update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _update_listener(hass: HomeAssistant, entry: MonopriceConfigEntry) -> None:
     """Handle options update."""
     await hass.config_entries.async_reload(entry.entry_id)
