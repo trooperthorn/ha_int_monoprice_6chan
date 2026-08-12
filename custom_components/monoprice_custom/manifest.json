@@ -6,7 +6,7 @@
   "dependencies": [],
   "documentation": "https://github.com/trooperthorn/ha_int_monoprice_6chan",
   "iot_class": "local_polling",
-  "requirements": ["pymonoprice==0.3", "pyserial>=3.5"],
-  "version": "2026.08.12",
+  "requirements": ["pymonoprice==0.5", "pyserial>=3.5"],
+  "version": "v2026.08.12.3",
   "diagnostics": true
 }
