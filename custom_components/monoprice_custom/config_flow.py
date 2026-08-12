@@ -76,7 +76,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
+    ):
         """Handle the initial step."""
         errors = {}
 
@@ -95,10 +95,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         # Build the dropdown options
         port_options = [
-            selector.SelectOptionDict(
-                value=port.device,
-                label=f"{port.device} - {port.description}" if port.description and port.description != "n/a" else port.device,
-            )
+            {
+                "value": port.device,
+                "label": f"{port.device} - {port.description}" if port.description and port.description != "n/a" else port.device,
+            }
             for port in ports
         ]
 
@@ -159,7 +159,7 @@ class MonopriceOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
+    ):
         """Manage the options."""
         if user_input is not None:
             return self.async_create_entry(
