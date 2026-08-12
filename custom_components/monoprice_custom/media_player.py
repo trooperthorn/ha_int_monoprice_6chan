@@ -1,312 +1,300 @@
-"""Support for interfacing with Monoprice 6 zone home audio controller."""
+"""Support for interfacing with Monoprice 6-Zone Home Audio Controller."""
+from __future__ import annotations
+
 import logging
+from typing import Any
 
-from serial import SerialException
+import voluptuous as vol
 
-from homeassistant import core
 from homeassistant.components.media_player import (
     MediaPlayerDeviceClass,
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
     MediaPlayerState,
 )
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PORT
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv, entity_platform, service
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-import voluptuous as vol
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    CONF_NAME,
-    CONF_SOURCES,
-    DOMAIN,
-    FIRST_RUN,
-    MONOPRICE_OBJECT,
-    SERVICE_RESTORE,
-    SERVICE_SNAPSHOT,
-    SERVICE_SET_BALANCE,
-    SERVICE_SET_BASS,
-    SERVICE_SET_TREBLE,
     ATTR_BALANCE,
     ATTR_BASS,
-    ATTR_TREBLE
+    ATTR_TREBLE,
+    CONF_SOURCES,
+    DOMAIN,
 )
-
-SET_BALANCE_SCHEMA = vol.Schema(
-    {
-        vol.Optional("entity_id", default=[]): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional(ATTR_BALANCE, default=0): vol.All(int, vol.Range(min=0, max=21))
-    }
-)
-
-SET_BASS_SCHEMA = vol.Schema(
-    {
-        vol.Optional("entity_id", default=[]): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional(ATTR_BASS, default=5): vol.All(int, vol.Range(min=0, max=15))
-    }
-)
-
-SET_TREBLE_SCHEMA = vol.Schema(
-    {
-        vol.Optional("entity_id", default=[]): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional(ATTR_TREBLE, default=5): vol.All(int, vol.Range(min=0, max=15))
-    }
-)
+from .__init__ import MonopriceConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
-MAX_VOLUME = 38
-PARALLEL_UPDATES = 1
+MAX_VOLUME = 38.0
+
+# Schemas for custom entity services
+SET_BALANCE_SCHEMA = {
+    vol.Required(ATTR_BALANCE): vol.All(cv.positive_int, vol.Range(min=0, max=20))
+}
+
+SET_BASS_SCHEMA = {
+    vol.Required(ATTR_BASS): vol.All(cv.positive_int, vol.Range(min=0, max=14))
+}
+
+SET_TREBLE_SCHEMA = {
+    vol.Required(ATTR_TREBLE): vol.All(cv.positive_int, vol.Range(min=0, max=14))
+}
 
 
-@core.callback
-def _get_sources_from_dict(data):
-    sources_config = data[CONF_SOURCES]
+@callback
+def _get_sources_from_dict(data: dict[str, Any]) -> tuple[dict[int, str], dict[str, int], list[str]]:
+    """Format configured source dictionaries."""
+    sources_config = data.get(CONF_SOURCES, {})
     source_id_name = {int(index): name for index, name in sources_config.items()}
     source_name_id = {v: k for k, v in source_id_name.items()}
     source_names = sorted(source_name_id.keys(), key=lambda v: source_name_id[v])
 
-    return [source_id_name, source_name_id, source_names]
-
-
-@core.callback
-def _get_sources(config_entry):
-    if CONF_SOURCES in config_entry.options:
-        data = config_entry.options
-    else:
-        data = config_entry.data
-    return _get_sources_from_dict(data)
+    return source_id_name, source_name_id, source_names
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    entry: MonopriceConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Monoprice 6-zone amplifier platform."""
-    port = config_entry.data[CONF_PORT]
+    monoprice_data = entry.runtime_data
+    coordinator = monoprice_data.coordinator
 
-    monoprice = hass.data[DOMAIN][config_entry.entry_id][MONOPRICE_OBJECT]
+    # Retrieve sources configuration
+    sources_data = entry.options if CONF_SOURCES in entry.options else entry.data
+    sources = _get_sources_from_dict(sources_data)
 
-    sources = _get_sources(config_entry)
-
+    # Support up to 3 stacked units: Unit 1 (11-16), Unit 2 (21-26), Unit 3 (31-36)
+    # Plus Master Zone controllers (10, 20, 30)
     entities = []
     for i in range(1, 4):
+        # Add Master zone for unit (10, 20, 30)
+        entities.append(MonopriceZone(coordinator, entry.entry_id, i * 10, sources))
+        # Add individual zones (11-16, 21-26, 31-36)
         for j in range(1, 7):
             zone_id = (i * 10) + j
-            _LOGGER.info("Adding zone %d for port %s", zone_id, port)
-            entities.append(
-                MonopriceZone(monoprice, sources, config_entry.entry_id, zone_id)
-            )
+            entities.append(MonopriceZone(coordinator, entry.entry_id, zone_id, sources))
 
-    # only call update before add if it's the first run so we can try to detect zones
-    first_run = hass.data[DOMAIN][config_entry.entry_id][FIRST_RUN]
-    async_add_entities(entities, first_run)
+    async_add_entities(entities)
 
+    # Register entity services for custom actions
     platform = entity_platform.async_get_current_platform()
-
-    def _call_service(entities, service_call):
-        for entity in entities:
-            if service_call.service == SERVICE_SNAPSHOT:
-                entity.snapshot()
-            elif service_call.service == SERVICE_RESTORE:
-                entity.restore()
-            elif service_call.service == SERVICE_SET_BALANCE:
-                entity.set_balance(service_call)
-            elif service_call.service == SERVICE_SET_BASS:
-                entity.set_bass(service_call)
-            elif service_call.service == SERVICE_SET_TREBLE:
-                entity.set_treble(service_call)
-
-    @service.verify_domain_control(DOMAIN)
-    async def async_service_handle(service_call: core.ServiceCall) -> None:
-        """Handle for services."""
-        entities = await platform.async_extract_from_service(service_call)
-
-        if not entities:
-            return
-
-        hass.async_add_executor_job(_call_service, entities, service_call)
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SNAPSHOT,
-        async_service_handle,
-        schema=cv.make_entity_service_schema({}),
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_RESTORE,
-        async_service_handle,
-        schema=cv.make_entity_service_schema({}),
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_BALANCE,
-        async_service_handle,
-        schema=SET_BALANCE_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_BASS,
-        async_service_handle,
-        schema=SET_BASS_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_TREBLE,
-        async_service_handle,
-        schema=SET_TREBLE_SCHEMA,
-    )
-
-class MonopriceZone(MediaPlayerEntity):
-    """Representation of a Monoprice amplifier zone."""
     
+    platform.async_register_entity_service("snapshot", {}, "async_snapshot")
+    platform.async_register_entity_service("restore", {}, "async_restore")
+    platform.async_register_entity_service("set_balance", SET_BALANCE_SCHEMA, "async_set_balance")
+    platform.async_register_entity_service("set_bass", SET_BASS_SCHEMA, "async_set_bass")
+    platform.async_register_entity_service("set_treble", SET_TREBLE_SCHEMA, "async_set_treble")
+
+
+class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
+    """Representation of a Monoprice amplifier zone."""
+
     _attr_device_class = MediaPlayerDeviceClass.RECEIVER
-    _attr_supported_features = (
-        MediaPlayerEntityFeature.VOLUME_MUTE
-        | MediaPlayerEntityFeature.VOLUME_SET
-        | MediaPlayerEntityFeature.VOLUME_STEP
-        | MediaPlayerEntityFeature.TURN_ON
-        | MediaPlayerEntityFeature.TURN_OFF
-        | MediaPlayerEntityFeature.SELECT_SOURCE
-        | MediaPlayerEntityFeature.SELECT_SOUND_MODE
-    )
     _attr_has_entity_name = True
     _attr_name = None
     _attr_sound_mode_list = ["Normal", "High Bass", "Medium Bass", "Low Bass"]
-    _attr_sound_mode = None
 
-    def __init__(self, monoprice, sources, namespace, zone_id):
+    def __init__(
+        self,
+        coordinator,
+        entry_id: str,
+        zone_id: int,
+        sources: tuple[dict[int, str], dict[str, int], list[str]],
+    ) -> None:
         """Initialize new zone."""
-        self._monoprice = monoprice
-        # dict source_id -> source name
-        self._source_id_name = sources[0]
-        # dict source name -> source_id
-        self._source_name_id = sources[1]
-        # ordered list of all source names
-        self._attr_source_list = sources[2]
-
+        super().__init__(coordinator)
         self._zone_id = zone_id
-        self._attr_unique_id = f"{namespace}_{self._zone_id}"
+        self._source_id_name, self._source_name_id, self._attr_source_list = sources
+
+        self._attr_unique_id = f"{entry_id}_{self._zone_id}"
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{namespace}_{self._zone_id}")},
+            identifiers={(DOMAIN, f"{entry_id}_{self._zone_id}")},
             manufacturer="Monoprice",
             model="6-Zone Amplifier",
-            name=f"Zone {self._zone_id}",
+            name=f"Zone {self._zone_id}" if self._zone_id not in [10, 20, 30] else f"Unit {self._zone_id // 10} Master",
         )
-        
+
+        self._attr_supported_features = (
+            MediaPlayerEntityFeature.VOLUME_MUTE
+            | MediaPlayerEntityFeature.VOLUME_SET
+            | MediaPlayerEntityFeature.VOLUME_STEP
+            | MediaPlayerEntityFeature.TURN_ON
+            | MediaPlayerEntityFeature.TURN_OFF
+            | MediaPlayerEntityFeature.SELECT_SOURCE
+            | MediaPlayerEntityFeature.SELECT_SOUND_MODE
+        )
+
         self._snapshot = None
-        self._update_success = True
-        
-
-    def update(self) -> None:
-        """Retrieve latest state."""
-        try:
-            state = self._monoprice.zone_status(self._zone_id)
-        except SerialException:
-            self._update_success = False
-            _LOGGER.warning("Could not update zone %d", self._zone_id)
-            return
-
-        if not state:
-            self._update_success = False
-            return
-
-        self._attr_state = MediaPlayerState.ON if state.power else MediaPlayerState.OFF
-        self._attr_volume_level = state.volume / MAX_VOLUME
-        self._attr_is_volume_muted = state.mute
-        idx = state.source
-        self._attr_source = self._source_id_name.get(idx)
+        self._sound_mode = "Normal"
 
     @property
     def entity_registry_enabled_default(self) -> bool:
-        """Return if the entity should be enabled when first added to the entity registry."""
-        if(self._zone_id == 10 or self._zone_id == 20 or self._zone_id == 30):
+        """Return if entity is enabled by default when first added."""
+        # Disable master control zones (10, 20, 30) by default
+        if self._zone_id in (10, 20, 30):
             return False
-        return self._zone_id < 20 or self._update_success
+        # Enable Unit 1 by default; enable Units 2 & 3 only if hardware responds
+        return self._zone_id < 20 or (self.zone_data is not None)
 
     @property
-    def media_title(self):
-        """Return the current source as medial title."""
+    def zone_data(self) -> Any | None:
+        """Helper to get current zone status from coordinator."""
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.get(self._zone_id)
+
+    @property
+    def state(self) -> MediaPlayerState | None:
+        """Return the power state of the zone."""
+        if not self.zone_data:
+            return None
+        return MediaPlayerState.ON if self.zone_data.power else MediaPlayerState.OFF
+
+    @property
+    def volume_level(self) -> float | None:
+        """Return the volume level of the zone (0.0 to 1.0)."""
+        if not self.zone_data:
+            return None
+        return self.zone_data.volume / MAX_VOLUME
+
+    @property
+    def is_volume_muted(self) -> bool | None:
+        """Return boolean if volume is muted."""
+        if not self.zone_data:
+            return None
+        return self.zone_data.mute
+
+    @property
+    def source(self) -> str | None:
+        """Return the current input source."""
+        if not self.zone_data:
+            return None
+        return self._source_id_name.get(self.zone_data.source)
+
+    @property
+    def media_title(self) -> str | None:
+        """Return the current source as media title."""
         return self.source
 
-    def snapshot(self):
-        """Save zone's current state."""
-        self._snapshot = self._monoprice.zone_status(self._zone_id)
+    @property
+    def sound_mode(self) -> str | None:
+        """Return the current sound mode."""
+        return self._sound_mode
 
-    def restore(self):
-        """Restore saved state."""
-        if self._snapshot:
-            self._monoprice.restore_zone(self._snapshot)
-            self.schedule_update_ha_state(True)
-
-    def select_source(self, source: str) -> None:
-        """Set input source."""
-        if source not in self._source_name_id:
-            return
-        idx = self._source_name_id[source]
-        self._monoprice.set_source(self._zone_id, idx)
-
-    def turn_on(self) -> None:
+    async def async_turn_on(self) -> None:
         """Turn the media player on."""
-        self._monoprice.set_power(self._zone_id, True)
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_power, self._zone_id, True
+        )
+        await self.coordinator.async_request_refresh()
 
-    def turn_off(self) -> None:
+    async def async_turn_off(self) -> None:
         """Turn the media player off."""
-        self._monoprice.set_power(self._zone_id, False)
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_power, self._zone_id, False
+        )
+        await self.coordinator.async_request_refresh()
 
-    def mute_volume(self, mute: bool) -> None:
+    async def async_mute_volume(self, mute: bool) -> None:
         """Mute (true) or unmute (false) media player."""
-        self._monoprice.set_mute(self._zone_id, mute)
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_mute, self._zone_id, mute
+        )
+        await self.coordinator.async_request_refresh()
 
-    def set_volume_level(self, volume: float) -> None:
+    async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0..1."""
-        self._monoprice.set_volume(self._zone_id, round(volume * MAX_VOLUME))
+        target_vol = round(volume * MAX_VOLUME)
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_volume, self._zone_id, target_vol
+        )
+        await self.coordinator.async_request_refresh()
 
-    def volume_up(self) -> None:
+    async def async_volume_up(self) -> None:
         """Volume up the media player."""
         if self.volume_level is None:
             return
-        volume = round(self.volume_level * MAX_VOLUME)
-        self._monoprice.set_volume(self._zone_id, min(volume + 1, MAX_VOLUME))
+        current_vol = round(self.volume_level * MAX_VOLUME)
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_volume, self._zone_id, min(current_vol + 1, int(MAX_VOLUME))
+        )
+        await self.coordinator.async_request_refresh()
 
-    def volume_down(self) -> None:
+    async def async_volume_down(self) -> None:
         """Volume down media player."""
         if self.volume_level is None:
             return
-        volume = round(self.volume_level * MAX_VOLUME)
-        self._monoprice.set_volume(self._zone_id, max(volume - 1, 0))
+        current_vol = round(self.volume_level * MAX_VOLUME)
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_volume, self._zone_id, max(current_vol - 1, 0)
+        )
+        await self.coordinator.async_request_refresh()
 
-    def set_balance(self, call) -> None:
-        """Set balance level."""
-        level = int(call.data.get(ATTR_BALANCE))
-        self._monoprice.set_balance(self._zone_id, level)
- 
-    def set_bass(self, call) -> None:
-        """Set bass level."""
-        level = int(call.data.get(ATTR_BASS))
-        self._monoprice.set_bass(self._zone_id, level)
+    async def async_select_source(self, source: str) -> None:
+        """Select input source."""
+        if source not in self._source_name_id:
+            return
+        idx = self._source_name_id[source]
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_source, self._zone_id, idx
+        )
+        await self.coordinator.async_request_refresh()
 
-    def set_treble(self, call) -> None:
-        """Set treble level."""
-        level = int(call.data.get(ATTR_TREBLE))
-        self._monoprice.set_treble(self._zone_id, level)
-
-    def select_sound_mode(self, sound_mode) -> None:
-        """Switch the sound mode of the entity."""
+    async def async_select_sound_mode(self, sound_mode: str) -> None:
+        """Switch the sound mode preset."""
         self._sound_mode = sound_mode
-        if(sound_mode == "Normal"):
-            self._monoprice.set_bass(self._zone_id, 7)
-        elif(sound_mode == "High Bass"):
-            self._monoprice.set_bass(self._zone_id, 12)
-        elif(sound_mode == "Medium Bass"):
-            self._monoprice.set_bass(self._zone_id, 10)
-        elif(sound_mode == "Low Bass"):
-            self._monoprice.set_bass(self._zone_id, 3)
+        bass_level = 7
+        if sound_mode == "High Bass":
+            bass_level = 12
+        elif sound_mode == "Medium Bass":
+            bass_level = 10
+        elif sound_mode == "Low Bass":
+            bass_level = 3
+
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_bass, self._zone_id, bass_level
+        )
+        await self.coordinator.async_request_refresh()
+
+    # --- Custom Entity Services ---
+
+    async def async_snapshot() -> None:
+        """Save zone's current state."""
+        self._snapshot = await self.hass.async_add_executor_job(
+            self.coordinator.api.zone_status, self._zone_id
+        )
+
+    async def async_restore() -> None:
+        """Restore saved state."""
+        if self._snapshot:
+            await self.hass.async_add_executor_job(
+                self.coordinator.api.restore_zone, self._snapshot
+            )
+            await self.coordinator.async_request_refresh()
+
+    async def async_set_balance(self, balance: int) -> None:
+        """Set balance level (0-20)."""
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_balance, self._zone_id, balance
+        )
+        await self.coordinator.async_request_refresh()
+
+    async def async_set_bass(self, bass: int) -> None:
+        """Set bass level (0-14)."""
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_bass, self._zone_id, bass
+        )
+        await self.coordinator.async_request_refresh()
+
+    async def async_set_treble(self, treble: int) -> None:
+        """Set treble level (0-14)."""
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_treble, self._zone_id, treble
+        )
+        await self.coordinator.async_request_refresh()
