@@ -31,8 +31,6 @@ SERVICE_SET_BASS = "set_bass"
 SERVICE_SET_TREBLE = "set_treble"
 
 FIRST_RUN = "first_run"
-MONOPRICE_OBJECT = "monoprice_object"
-UNDO_UPDATE_LISTENER = "update_update_listener"
 
 ATTR_BALANCE = "level"
 ATTR_BASS = "level"
