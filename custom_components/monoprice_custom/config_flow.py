@@ -5,9 +5,7 @@ import logging
 from typing import Any
 
 from pymonoprice import get_monoprice
-import serial
 from serial import SerialException
-import serial.tools.list_ports
 import voluptuous as vol
 
 from homeassistant import config_entries, core, exceptions
@@ -86,54 +84,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
 
-        # 1. Get a list of ports currently configured across all HA integration entries
-        ha_configured_ports = {
-            entry.data.get(CONF_PORT)
-            for entry in self.hass.config_entries.async_entries()
-            if CONF_PORT in entry.data
-        }
-
-        # 2. Hardware/Registry Probe logic
-        def _get_port_status(port):
-            device_path = port.device
-            is_in_use = False
-
-            # Check HA integration registry first
-            if device_path in ha_configured_ports:
-                is_in_use = True
-            else:
-                # Hardware Probe: Try to open port briefly
-                try:
-                    test_conn = serial.Serial(device_path)
-                    test_conn.close()
-                except (SerialException, PermissionError, OSError):
-                    is_in_use = True
-
-            label = f"{device_path} - {port.description}" if port.description and port.description != "n/a" else device_path
-            if is_in_use:
-                label = f"{label} (In Use)"
-
-            return {
-                "value": device_path,
-                "label": label,
-            }
-
-        # 3. Offload serial port scanning & hardware probing to the executor
-        ports = await self.hass.async_add_executor_job(serial.tools.list_ports.comports)
-        port_options = await self.hass.async_add_executor_job(
-            lambda: [_get_port_status(p) for p in ports]
-        )
-
-        # Build schema using dynamic dropdown alongside source renaming options
+        # Build schema using the native UI Selector alongside source renaming options
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_PORT): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=port_options,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        custom_value=True,
-                    )
-                ),
+                vol.Required(CONF_PORT): selector.SerialPortSelector(),
                 **OPTIONS_FOR_DATA,
             }
         )
