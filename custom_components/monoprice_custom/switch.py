@@ -51,16 +51,12 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
         self._zone_id = zone_id
         self._is_master = is_master
         
-        # Change this to "Master PA"
-        self._attr_name = "Master PA" if is_master else "Public Address"
-        
+        # Keep entity name simple so it appends cleanly to Device Name
+        self._attr_name = "PA" if is_master else "Public Address"
         self._attr_icon = "mdi:bullhorn"
         self._attr_unique_id = f"{entry_id}_{zone_id}_pa_switch"
 
-        dev_id = f"{entry_id}_master_{zone_id}" if is_master else f"{entry_id}_{zone_id}"
-        
-        # Change the device name from "Unit X Master" to "Master" 
-        # (Combined with the entity name above, HA will display "Master Master PA" or just "Master PA" depending on your dashboard)
+        dev_id = f"{entry_id}_{zone_id}"
         dev_name = f"Unit {zone_id // 10} Master" if is_master else f"Zone {zone_id}"
 
         self._attr_device_info = DeviceInfo(
@@ -114,7 +110,7 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_icon = "mdi:weather-night"
         self._attr_unique_id = f"{entry_id}_{zone_id}_dnd_switch"
 
-        dev_id = f"{entry_id}_master_{zone_id}" if is_master else f"{entry_id}_{zone_id}"
+        dev_id = f"{entry_id}_{zone_id}"
         dev_name = f"Unit {zone_id // 10} Master" if is_master else f"Zone {zone_id}"
 
         self._attr_device_info = DeviceInfo(
