@@ -116,46 +116,48 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # Store domain (e.g. 'zwave_js', 'zha', 'elkm1')
                 ha_configured_ports[path] = entry.domain
 
-        # 2. Smart Hardware Probe
+        # 2. Smart Hardware Probe (Direct RS232 Protocol Check)
         def _get_port_status(port):
             device_path = port.device
             resolved_path = _resolve_path(device_path)
             
             status_label = "(Available)"
-            amp = None
 
-            # If HA already claimed this port for another integration, skip probing completely
+            # Skip hardware probe if Home Assistant already claimed this port
             if device_path in ha_configured_ports or resolved_path in ha_configured_ports:
                 using_domain = ha_configured_ports.get(device_path) or ha_configured_ports.get(resolved_path)
                 status_label = f"(In Use by {using_domain})"
             else:
-                # Safe to probe: test if the port responds to Monoprice commands
+                # Raw RS232 Probe: Fast, direct, and buffer-safe
                 try:
-                    amp = get_monoprice(device_path)
-                    
-                    # Temporarily drop timeout to 0.5s so non-matching ports don't delay the UI
-                    if hasattr(amp, "_port"):
-                        amp._port.timeout = 0.5
-                        amp._port.write(b"\r\n")
-                    
-                    # Query Zone 11 to see if amplifier responds
-                    zone_status = amp.zone_status(11)
-                    if zone_status:
-                        status_label = "(Monoprice Amp Detected) 🎯"
-                        
-                except Exception as err:
-                    if "timed out" in str(err) or "received bytes" in str(err):
-                        status_label = "(Available)"
-                    else:
-                        # PermissionError, OS lock, or busy
-                        status_label = "(In Use by OS)"
-                finally:
-                    # Failsafe: Always close the serial port immediately
-                    try:
-                        if amp and hasattr(amp, "_port") and amp._port.is_open:
-                            amp._port.close()
-                    except Exception:
-                        pass
+                    with serial.Serial(device_path, 9600, timeout=1.0) as ser:
+                        # Flush any stale data out of the hardware buffers
+                        ser.reset_input_buffer()
+                        ser.reset_output_buffer()
+
+                        # Send wake-up byte and clear any resulting echo
+                        ser.write(b"\r\n")
+                        ser.flush()
+                        ser.reset_input_buffer()
+
+                        # Send Zone 11 inquiry command (?11\r) per Monoprice RS232 manual
+                        ser.write(b"?11\r")
+                        ser.flush()
+
+                        # Read up to 30 bytes from the port
+                        response = ser.read(30)
+
+                        # Monoprice amplifiers always reply with ">11..." or ">10..."
+                        if b">11" in response or b">10" in response or b">" in response:
+                            status_label = "(Monoprice Amp Detected) 🎯"
+                        else:
+                            status_label = "(Available)"
+
+                except (SerialException, PermissionError, OSError):
+                    # Port is locked by another OS process or container
+                    status_label = "(In Use by OS)"
+                except Exception:
+                    status_label = "(Available)"
 
             label = f"{device_path} - {port.description}" if port.description and port.description != "n/a" else device_path
             
