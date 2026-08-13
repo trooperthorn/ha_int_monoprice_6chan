@@ -96,9 +96,8 @@ class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
 
     @property
     def entity_registry_enabled_default(self) -> bool:
-        if self._zone_id in (10, 20, 30):
-            return False
-        return self._zone_id < 20 or (self.zone_data is not None)
+        """Return if entity is enabled by default."""
+        return True
 
     @property
     def zone_data(self) -> Any | None:
