@@ -1,15 +1,14 @@
 {
   "domain": "monoprice",
-  "name": "Monoprice 6-Zone Audio",
-  "version": "2026.08.12",
+  "name": "Monoprice 6-Zone Amplifier",
   "codeowners": ["@trooperthorn"],
   "config_flow": true,
-  "documentation": "https://github.com/trooperthorn/ha_int_elkm1",
-  "issue_tracker": "https://github.com/trooperthorn/ha_int_elkm1/issues",
+  "dependencies": [],
+  "documentation": "https://github.com/trooperthorn/ha_int_monoprice_6chan",
+  "issue_tracker": "https://github.com/trooperthorn/ha_int_monoprice_6chan/issues",
+  "iot_class": "local_polling",
   "loggers": ["custom_components.monoprice"],
   "requirements": ["pymonoprice==0.5", "pyserial>=3.5"],
-  "dependencies": [],
-  "iot_class": "local_push",
-  "quality_scale": "platinum",
+  "version": "2026.08.13",
   "diagnostics": true
 }
