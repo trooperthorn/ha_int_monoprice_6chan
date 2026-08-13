@@ -15,7 +15,7 @@ from .const import (
     CONF_NOT_FIRST_RUN,
     DOMAIN,
     FIRST_RUN,
-    PLATFORMS
+    PLATFORMS,
 )
 from .coordinator import MonopriceCoordinator
 
