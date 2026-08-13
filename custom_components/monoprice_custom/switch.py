@@ -23,10 +23,10 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
 
     entities = []
-    # Loop over units 1-3, zones 1-6
-    for i in range(1, 4):
+    # Loop ONLY over detected units
+    for unit in coordinator.active_units:
         for j in range(1, 7):
-            zone_id = (i * 10) + j
+            zone_id = (unit * 10) + j
             entities.append(MonopricePASwitch(coordinator, entry.entry_id, zone_id))
             entities.append(MonopriceDNDSwitch(coordinator, entry.entry_id, zone_id))
 
