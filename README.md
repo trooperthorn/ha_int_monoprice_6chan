@@ -8,7 +8,17 @@
 
 A high-performance, completely rewritten Custom Integration for the Monoprice 6-Zone Amplifier (and compatible clones). This expands massively on the core Home Assistant integration by introducing high-speed serial communication, dynamic hardware discovery, and complete control over EQ, Public Address (PA), and Do Not Disturb (DND) modes.
 
+## ✨ USB Serial Configuration
+![Control UI Screenshots](https://github.com/trooperthorn/ha_int_monoprice_6chan/blob/main/Screenshots/usb-config.png?raw=true)
+
+
+## Media Player with PA and Do Not Disturb
+
 ![Control UI Screenshots](https://github.com/trooperthorn/ha_int_monoprice_6chan/blob/main/Screenshots/control-ui.png?raw=true)
+
+## Main Media Player Activates all Players, syncs Power and Source Control
+
+![Control UI Screenshots](https://github.com/trooperthorn/ha_int_monoprice_6chan/blob/main/Screenshots/main-ui.png?raw=true)
 
 ---
 
