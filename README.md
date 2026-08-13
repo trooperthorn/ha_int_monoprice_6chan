@@ -1,6 +1,11 @@
 # Home Assistant Custom Integration: Monoprice 6-Zone Amplifier
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
+[![GitHub Release][releases-shield]][releases]
+[![GitHub Activity][commits-shield]][commits]
+![Install Stats][stats]
+
+![Project Maintenance][maintenance-shield]
+[![Community Forum][forum-shield]][forum]
 
  An Integration for the Monoprice 6-Zone Amplifier, with added sound mode, balance, treble & bass
  This is a modification of the <a href="https://www.home-assistant.io/integrations/monoprice/">existing Monoprice integration</a>.
@@ -31,10 +36,11 @@
 ## Additional Features
 These are features not included in the original Monoprice Integration.
 
- #### Zones
- * 10 - Used to control all zones on the master controller <b>- Entity Disabled, there are known issues, alpha feature.</b>
- * 20 - Used to control all zones on the slave 1 controller <b>- Entity Disabled, there are known issues, alpha feature.</b>
- * 30 - Used to control all zones on the slave 2 controller <b>- Entity Disabled, there are known issues, alpha feature.</b>
+ #### | Zones
+ ---|:---:
+ * 10 | Used to control all zones on the master controller <b>- Entity Disabled, there are known issues, alpha feature.</b>
+ * 20 | Used to control all zones on the slave 1 controller <b>- Entity Disabled, there are known issues, alpha feature.</b>
+ * 30 | Used to control all zones on the slave 2 controller <b>- Entity Disabled, there are known issues, alpha feature.</b>
 
  #### Services
  * <i>monoprice_custom.snapshot</i> 
