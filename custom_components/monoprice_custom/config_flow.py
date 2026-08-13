@@ -163,7 +163,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             
             return {
                 "value": device_path,
-                "label": f"{label} {status_label}",
+                "label": f"{status_label} {label}",
             }
 
         # 3. Offload scanning and probing to the executor
