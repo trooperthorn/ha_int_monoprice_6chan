@@ -1,0 +1,53 @@
+name: Auto-Release Custom Component
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Allows manual triggering from the Actions tab
+
+permissions:
+  contents: write # Required to create tags and releases
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required to count previous tags for same-day runs
+      
+      - name: Generate version from date (with run counter)
+        id: version
+        run: |
+          git fetch --tags --force
+          CALVER=$(date +'%Y.%m.%d')
+          
+          # Count how many tags already exist today
+          TAG_COUNT=$(git tag -l "v${CALVER}*" | wc -l | xargs)
+          
+          if [ "$TAG_COUNT" -eq 0 ]; then
+            VERSION="$CALVER"
+          else
+            VERSION="${CALVER}.${TAG_COUNT}"
+          fi
+          
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "TAG=v$VERSION" >> $GITHUB_OUTPUT
+      
+      - name: Update manifest.json
+        run: |
+          jq ".version = \"${{ steps.version.outputs.VERSION }}\"" custom_components/monoprice_custom/manifest.json > tmp.json && mv tmp.json custom_components/monoprice_custom/manifest.json
+      
+      - name: Zip integration
+        run: |
+          cd custom_components/monoprice_custom
+          zip -r ../../monoprice_6chan.zip .
+      
+      - name: Create Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.TAG }}" monoprice_6chan.zip \
+            --title "Monoprice 6-Zone Amplifier ${{ steps.version.outputs.TAG }}" \
+            --notes "Automatic release from latest commit: ${{ github.sha }}"
