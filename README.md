@@ -1,7 +1,7 @@
 # Home Assistant Custom Integration: Monoprice 6-Zone Amplifier
 
-[![GitHub Release](https://img.shields.io/github/v/release/trooperthorn/ha_int_elkm1?style=for-the-badge)](https://github.com/trooperthorn/ha_int_monoprice_6chan/releases)
-[![GitHub Activity](https://img.shields.io/github/commit-activity/m/trooperthorn/ha_int_elkm1?style=for-the-badge)](https://github.com/trooperthorn/ha_int_monoprice_6chan/commits/master)
+[![GitHub Release](https://img.shields.io/github/v/release/trooperthorn/ha_int_monoprice_6chan?style=for-the-badge)](https://github.com/trooperthorn/ha_int_monoprice_6chan/releases)
+[![GitHub Activity](https://img.shields.io/github/commit-activity/m/trooperthorn/ha_int_monoprice_6chan?style=for-the-badge)](https://github.com/trooperthorn/ha_int_monoprice_6chan/commits/master)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
 
