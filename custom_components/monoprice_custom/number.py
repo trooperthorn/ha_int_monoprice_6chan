@@ -1,133 +1,133 @@
-"""Support for interfacing with Monoprice 6 zone home audio controller."""
-from code import interact
+"""Support for Monoprice 6-Zone Amplifier EQ controls via number entities."""
+from __future__ import annotations
+
 import logging
+from typing import Any
 
-from serial import SerialException
-
-from homeassistant import core
-try:
-    from homeassistant.components.number import (
-        NumberEntity as NumberEntity,
-    )
-except ImportError:
-    from homeassistant.components.number import NumberEntity
-
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PORT
+from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv, entity_platform, service
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import (
-    DOMAIN,
-    FIRST_RUN,
-    MONOPRICE_OBJECT
-)
+from .const import DOMAIN
+from .__init__ import MonopriceConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
+
 PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    entry: MonopriceConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Monoprice 6-zone amplifier platform."""
-    port = config_entry.data[CONF_PORT]
-    monoprice = hass.data[DOMAIN][config_entry.entry_id][MONOPRICE_OBJECT]
+    """Set up Monoprice number entities from a config entry."""
+    coordinator = entry.runtime_data.coordinator
 
     entities = []
     for i in range(1, 4):
         for j in range(1, 7):
             zone_id = (i * 10) + j
-            _LOGGER.info("Adding number entities for zone %d for port %s", zone_id, port)
-            entities.append(MonopriceZone(monoprice, "Balance", config_entry.entry_id, zone_id))
-            entities.append(MonopriceZone(monoprice, "Bass", config_entry.entry_id, zone_id))
-            entities.append(MonopriceZone(monoprice, "Treble", config_entry.entry_id, zone_id))
+            for control_type in ("Balance", "Bass", "Treble"):
+                entities.append(
+                    MonopriceZoneNumber(
+                        coordinator,
+                        entry.entry_id,
+                        zone_id,
+                        control_type,
+                    )
+                )
 
-    # only call update before add if it's the first run so we can try to detect zones
-    first_run = hass.data[DOMAIN][config_entry.entry_id][FIRST_RUN]
-    async_add_entities(entities, first_run)
+    async_add_entities(entities)
 
-    platform = entity_platform.async_get_current_platform()
 
-    @service.verify_domain_control(DOMAIN)
-    async def async_service_handle(service_call: core.ServiceCall) -> None:
-        """Handle for services."""
-        entities = await platform.async_extract_from_service(service_call)
+class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
+    """Representation of a Monoprice zone number control."""
 
-        if not entities:
-            return
+    _attr_has_entity_name = True
+    _attr_mode = NumberMode.SLIDER
+    _attr_native_step = 1.0
 
-class MonopriceZone(NumberEntity):
-    """Representation of a Monoprice amplifier zone."""
-
-    def __init__(self, monoprice, control_type, namespace, zone_id):
-        """Initialize new zone controls."""
-        self._monoprice = monoprice
-        self._control_type = control_type
+    def __init__(
+        self,
+        coordinator,
+        entry_id: str,
+        zone_id: int,
+        control_type: str,
+    ) -> None:
+        """Initialize new zone number controls."""
+        super().__init__(coordinator)
         self._zone_id = zone_id
-        
-        self._attr_unique_id = f"{namespace}_{self._zone_id}_{self._control_type}"
-        self._attr_has_entity_name = True
+        self._control_type = control_type
+
+        self._attr_unique_id = f"{entry_id}_{self._zone_id}_{self._control_type}"
         self._attr_name = f"{control_type} level"
-        self._attr_native_step = 1
-        self._attr_native_value = None
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{namespace}_{self._zone_id}")},
+            identifiers={(DOMAIN, f"{entry_id}_{self._zone_id}")},
             manufacturer="Monoprice",
             model="6-Zone Amplifier",
-            name=f"Zone {self._zone_id}"
+            name=f"Zone {self._zone_id}",
         )
 
-        if(control_type == "Balance"):
+        if control_type == "Balance":
             self._attr_native_min_value = 0
             self._attr_native_max_value = 20
             self._attr_icon = "mdi:scale-balance"
-        elif(control_type == "Bass"):
+        elif control_type == "Bass":
             self._attr_native_min_value = -7
             self._attr_native_max_value = 14
             self._attr_icon = "mdi:speaker"
-        elif(control_type == "Treble"):
+        elif control_type == "Treble":
             self._attr_native_min_value = -7
             self._attr_native_max_value = 14
             self._attr_icon = "mdi:surround-sound"
-            
-        self._update_success = True
-        
-    def update(self):
-        """Retrieve latest value."""
-        try:
-            state = self._monoprice.zone_status(self._zone_id)
-        except SerialException:
-            self._update_success = False
-            _LOGGER.warning("Could not update zone %d", self._zone_id)
-            return
-
-        if not state:
-            self._update_success = False
-            return
-
-        if(self._control_type == "Balance"):
-            self._attr_native_value = state.balance
-        elif(self._control_type == "Bass"):
-            self._attr_native_value = state.bass
-        elif(self._control_type == "Treble"):
-            self._attr_native_value = state.treble
 
     @property
     def entity_registry_enabled_default(self) -> bool:
         """Return if the entity should be enabled when first added to the entity registry."""
-        if(self._zone_id == 10 or self._zone_id == 20 or self._zone_id == 30):
+        if self._zone_id in (10, 20, 30):
             return False
-        return self._zone_id < 20 or self._update_success
+        return self._zone_id < 20 or (
+            self.coordinator.data is not None and self._zone_id in self.coordinator.data
+        )
 
-    def set_native_value(self, value: float) -> None:
-        """Update the current value."""
-        if(self._control_type == "Balance"):
-            self._monoprice.set_balance(self._zone_id, int(value))
-        elif(self._control_type == "Bass"):
-            self._monoprice.set_bass(self._zone_id, int(value))
-        elif(self._control_type == "Treble"):
-            self._monoprice.set_treble(self._zone_id, int(value))
+    @property
+    def zone_data(self) -> Any | None:
+        """Helper to retrieve current zone state from coordinator."""
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get(self._zone_id)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current value."""
+        if not self.zone_data:
+            return None
+
+        if self._control_type == "Balance":
+            return self.zone_data.balance
+        if self._control_type == "Bass":
+            return self.zone_data.bass
+        if self._control_type == "Treble":
+            return self.zone_data.treble
+        return None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Update the current value asynchronously."""
+        target_val = int(value)
+        if self._control_type == "Balance":
+            await self.hass.async_add_executor_job(
+                self.coordinator.api.set_balance, self._zone_id, target_val
+            )
+        elif self._control_type == "Bass":
+            await self.hass.async_add_executor_job(
+                self.coordinator.api.set_bass, self._zone_id, target_val
+            )
+        elif self._control_type == "Treble":
+            await self.hass.async_add_executor_job(
+                self.coordinator.api.set_treble, self._zone_id, target_val
+            )
+
+        await self.coordinator.async_request_refresh()
