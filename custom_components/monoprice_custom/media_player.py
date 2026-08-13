@@ -39,16 +39,24 @@ def _get_sources_from_dict(data: dict[str, Any]) -> tuple[dict[int, str], dict[s
     return source_id_name, source_name_id, source_names
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: MonopriceConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
+async def async_setup_entry(
+    hass: HomeAssistant, 
+    entry: MonopriceConfigEntry, 
+    async_add_entities: AddEntitiesCallback
+) -> None:
+    """Set up the Monoprice media player platform."""
     coordinator = entry.runtime_data.coordinator
     sources_data = entry.options if CONF_SOURCES in entry.options else entry.data
     sources = _get_sources_from_dict(sources_data)
 
     entities = []
-    for i in range(1, 4):
-        entities.append(MonopriceZone(coordinator, entry.entry_id, i * 10, sources))
+    # Loop ONLY over detected units
+    for unit in coordinator.active_units:
+        # Add Master control zone for the unit (10, 20, 30)
+        entities.append(MonopriceZone(coordinator, entry.entry_id, unit * 10, sources))
+        # Add individual zones (11-16, 21-26, 31-36)
         for j in range(1, 7):
-            entities.append(MonopriceZone(coordinator, entry.entry_id, (i * 10) + j, sources))
+            entities.append(MonopriceZone(coordinator, entry.entry_id, (unit * 10) + j, sources))
 
     async_add_entities(entities)
 
