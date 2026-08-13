@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from pymonoprice import get_monoprice
+import serial
 from serial import SerialException
+import serial.tools.list_ports
 import voluptuous as vol
 
 from homeassistant import config_entries, core, exceptions
@@ -37,6 +40,30 @@ SOURCES = [
 OPTIONS_FOR_DATA = {vol.Optional(source): str for source in SOURCES}
 
 
+def _resolve_path(path: str) -> str:
+    """Resolve symlinks like /dev/serial/by-id/... to /dev/ttyUSBx."""
+    try:
+        return os.path.realpath(path)
+    except Exception:
+        return path
+
+
+def _find_dev_paths(obj: Any) -> set[str]:
+    """Recursively search a data structure for any device paths starting with /dev/."""
+    found = set()
+    if isinstance(obj, dict):
+        for val in obj.values():
+            found.update(_find_dev_paths(val))
+    elif isinstance(obj, (list, tuple, set)):
+        for item in obj:
+            found.update(_find_dev_paths(item))
+    elif isinstance(obj, str):
+        if obj.startswith("/dev/"):
+            found.add(obj)
+            found.add(_resolve_path(obj))
+    return found
+
+
 @core.callback
 def _sources_from_config(data: dict[str, Any]) -> dict[str, str]:
     sources_config = {
@@ -53,15 +80,12 @@ def _sources_from_config(data: dict[str, Any]) -> dict[str, str]:
 async def validate_input(hass: core.HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
     try:
-        # Wrapped in executor to maintain async standards
         await hass.async_add_executor_job(get_monoprice, data[CONF_PORT])
     except SerialException as err:
         _LOGGER.error("Error connecting to Monoprice controller %s", data[CONF_PORT])
         raise CannotConnect from err
 
     sources = _sources_from_config(data)
-
-    # Return info that you want to store in the config entry.
     return {CONF_PORT: data[CONF_PORT], CONF_SOURCES: sources}
 
 
@@ -80,14 +104,82 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(title=user_input[CONF_PORT], data=info)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
-            except Exception:  # pylint: disable=broad-except
+            except Exception:  
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
 
-        # Build schema using the native UI Selector alongside source renaming options
+        # 1. Map all active HA integration entries to device paths they consume
+        ha_configured_ports: dict[str, str] = {}
+        for entry in self.hass.config_entries.async_entries():
+            dev_paths = _find_dev_paths(entry.data) | _find_dev_paths(entry.options)
+            for path in dev_paths:
+                # Store domain (e.g. 'zwave_js', 'zha', 'elkm1')
+                ha_configured_ports[path] = entry.domain
+
+        # 2. Smart Hardware Probe
+        def _get_port_status(port):
+            device_path = port.device
+            resolved_path = _resolve_path(device_path)
+            
+            status_label = "(Available)"
+            amp = None
+
+            # If HA already claimed this port for another integration, skip probing completely
+            if device_path in ha_configured_ports or resolved_path in ha_configured_ports:
+                using_domain = ha_configured_ports.get(device_path) or ha_configured_ports.get(resolved_path)
+                status_label = f"(In Use by {using_domain})"
+            else:
+                # Safe to probe: test if the port responds to Monoprice commands
+                try:
+                    amp = get_monoprice(device_path)
+                    
+                    # Temporarily drop timeout to 0.5s so non-matching ports don't delay the UI
+                    if hasattr(amp, "_port"):
+                        amp._port.timeout = 0.5
+                        amp._port.write(b"\r\n")
+                    
+                    # Query Zone 11 to see if amplifier responds
+                    zone_status = amp.zone_status(11)
+                    if zone_status:
+                        status_label = "(Monoprice Amp Detected) 🎯"
+                        
+                except Exception as err:
+                    if "timed out" in str(err) or "received bytes" in str(err):
+                        status_label = "(Available)"
+                    else:
+                        # PermissionError, OS lock, or busy
+                        status_label = "(In Use by OS)"
+                finally:
+                    # Failsafe: Always close the serial port immediately
+                    try:
+                        if amp and hasattr(amp, "_port") and amp._port.is_open:
+                            amp._port.close()
+                    except Exception:
+                        pass
+
+            label = f"{device_path} - {port.description}" if port.description and port.description != "n/a" else device_path
+            
+            return {
+                "value": device_path,
+                "label": f"{label} {status_label}",
+            }
+
+        # 3. Offload scanning and probing to the executor
+        ports = await self.hass.async_add_executor_job(serial.tools.list_ports.comports)
+        port_options = await self.hass.async_add_executor_job(
+            lambda: [_get_port_status(p) for p in ports]
+        )
+
+        # Build schema using the dynamic dropdown
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_PORT): selector.SerialPortSelector(),
+                vol.Required(CONF_PORT): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=port_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        custom_value=True,
+                    )
+                ),
                 **OPTIONS_FOR_DATA,
             }
         )
@@ -113,7 +205,6 @@ def _key_for_source(index: int, source: str, previous_sources: dict[str, Any]) -
         )
     else:
         key = vol.Optional(source)
-
     return key
 
 
@@ -126,7 +217,6 @@ class MonopriceOptionsFlowHandler(config_entries.OptionsFlow):
             previous = self.config_entry.options[CONF_SOURCES]
         else:
             previous = self.config_entry.data[CONF_SOURCES]
-
         return previous
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
@@ -137,7 +227,6 @@ class MonopriceOptionsFlowHandler(config_entries.OptionsFlow):
             )
 
         previous_sources = self._previous_sources()
-
         options = {
             _key_for_source(idx + 1, source, previous_sources): str
             for idx, source in enumerate(SOURCES)
