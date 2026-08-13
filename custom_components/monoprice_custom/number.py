@@ -27,9 +27,10 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
 
     entities = []
-    for i in range(1, 4):
+    # Loop ONLY over detected units
+    for unit in coordinator.active_units:
         for j in range(1, 7):
-            zone_id = (i * 10) + j
+            zone_id = (unit * 10) + j
             for control_type in ("Balance", "Bass", "Treble"):
                 entities.append(
                     MonopriceZoneNumber(
