@@ -45,3 +45,24 @@ set_treble:
       required: true
       example: "10"
       default: "7"
+
+set_baud_rate:
+  target:
+    entity:
+      integration: monoprice
+      domain: remote
+  fields:
+    baud_rate:
+      description: Target RS-232 link speed. Must be one of the amplifier's supported rates.
+      required: true
+      example: "38400"
+      default: "9600"
+      selector:
+        select:
+          options:
+            - "9600"
+            - "19200"
+            - "38400"
+            - "57600"
+            - "115200"
+            - "230400"

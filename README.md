@@ -26,7 +26,7 @@ A high-performance, completely rewritten Custom Integration for the Monoprice 6-
 
 This integration has been rebuilt around a modern, non-blocking `DataUpdateCoordinator` architecture to provide lightning-fast, highly reliable control:
 
-*   🚀 **High-Speed Serial Auto-Negotiation:** The integration automatically detects the amplifier's current baud rate and upgrades it from the default 9600 baud to **38,400 baud**. This cuts command latency down to milliseconds for ultra-snappy UI responses.
+*   🚀 **High-Speed Serial Auto-Negotiation:** The integration automatically detects the amplifier's current baud rate and negotiates it up to a **configurable target rate** (see [Baud Rate & Latency](#-baud-rate--latency)), cutting command latency for snappier UI responses. Each zone action also triggers a targeted single-zone refresh instead of waiting for the next full poll.
 *   🧠 **Smart Hardware Auto-Discovery:** No more 24-second timeout lags. The integration automatically probes for expansion units (Units 2 and 3) on boot. If they aren't physically connected, it skips polling them entirely.
 *   🎛️ **Master Unit Controls:** Full support for Master Zones (10, 20, 30). Adjusting power, volume, source, or PA on a Master Zone instantly applies the change to all 6 zones on that unit simultaneously. *(Enabled by default)*
 *   🎙️ **Public Address & DND Switches:** PA and Do Not Disturb are now fully Writable Switches (not just read-only sensors). Toggle PA on a zone to instantly force it to Source 1 for announcements.
@@ -47,12 +47,41 @@ For every active zone detected, this integration generates the following control
 *   **Do Not Disturb (DND):** Toggling ON isolates the zone from Master Zone commands (like house-wide power off or volume changes).
 
 ### Number Sliders (EQ)
-*   **Balance:** Left/Right speaker balance (0 - 20)
-*   **Bass:** Low-frequency EQ (-7 to +14)
-*   **Treble:** High-frequency EQ (-7 to +14)
+*   **Balance:** Left/Right speaker balance (-10 full left to +10 full right, 0 = center)
+*   **Bass:** Low-frequency EQ (-7dB to +7dB)
+*   **Treble:** High-frequency EQ (-7dB to +7dB)
+
+### Text
+*   **Source 1-6 Display Name:** Renames the source label shown on physical zone keypads (8 ASCII characters max).
+*   **Keypad Welcome Message:** Sets the boot message shown on zone keypads (8 ASCII characters max).
+
+### Remote
+*   **RS232 Controller:** Sends any raw command from the [RS-232 spec](#-rs-232-protocol-coverage) directly, for commands not otherwise exposed as an entity. Also exposes the `set_baud_rate` action.
 
 ### Sensors
-*   **Keypad Status:** Read-only diagnostic showing if the physical wall keypad for the zone is `Connected` or `Disconnected`.
+*   **Keypad Status (diagnostic):** Read-only, shows if the physical wall keypad for the zone is `Connected` or `Disconnected`.
+
+---
+
+## 📡 RS-232 Protocol Coverage
+
+Every command documented in the Monoprice Multizone Controller RS-232 spec is reachable, either as a dedicated entity/action or via the raw `remote.RS232 Controller` entity:
+
+| Command | Exposed as |
+| :--- | :--- |
+| `PR` power | Media player power |
+| `MU` mute | Media player mute |
+| `VO` volume | Media player volume |
+| `TR`/`BS` treble/bass | Number entities (dB) |
+| `BL` balance | Number entity |
+| `CH` source | Media player source select |
+| `PA` paging | Switch |
+| `DT` do-not-disturb | Switch |
+| `1`-`6<name>` source rename | Text entities |
+| `M<name>` keypad welcome message | Text entity |
+| `<BAUD` link speed | `remote.set_baud_rate` action / options flow |
+| `?xx` full zone status | Polled by the coordinator |
+| `?xxPP` single-field status | `api.zone_field_status()` (available for automations/future targeted polling) |
 
 ---
 
@@ -94,3 +123,44 @@ This integration exposes custom services for advanced automation workflows:
 | `monoprice_custom.set_balance` | Set the balance integer via automation. |
 | `monoprice_custom.set_bass` | Set the bass integer via automation. |
 | `monoprice_custom.set_treble` | Set the treble integer via automation. |
+| `monoprice_custom.set_baud_rate` | Negotiate the amplifier and local port to a new link speed (9600/19200/38400/57600/115200/230400). |
+
+---
+
+## 🚦 Baud Rate & Latency
+
+The amplifier always powers on at 9600 baud. On first poll after startup the integration negotiates up to a faster **target link speed**, configurable from **Settings → Devices & Services → Monoprice → Configure** (defaults to 9600 unless changed). A higher rate lowers per-command latency but is more sensitive to long or noisy RS-232 runs — if you see intermittent timeouts after raising it, step back down one notch. The amp reverts to 9600 baud on every power cycle, so the integration re-negotiates automatically whenever a connection error is detected.
+
+---
+
+## 🔁 Reconfiguring
+
+If you move the amplifier to a different USB/serial port, use **Settings → Devices & Services → Monoprice → Reconfigure** instead of removing and re-adding the integration — it keeps your existing entities, automations, and history intact.
+
+---
+
+## ⚠️ Known Limitations
+
+*   The amplifier's Public Address input is a fixed hardware pin (not a `media_player.play_media` target); to page a zone, route your announcement device's audio into the amp's PA input and toggle the `Public Address` switch.
+*   The `Sound Mode` dropdown on each zone media player is a convenience preset that just sets the zone's Bass value — it isn't a hardware DSP mode, and it will move the Bass number entity's slider when used.
+*   Source names/keypad messages are limited to 8 ASCII characters by the hardware; longer input is silently truncated.
+
+## 🩺 Troubleshooting
+
+*   **"Cannot connect" during setup:** the config flow's port dropdown labels ports as `(Monoprice Amp Detected)`, `(In Use by <domain>)`, or `(Available)` based on a live probe — pick a `(Monoprice Amp Detected)` entry if one is listed.
+*   **Entities go `Unavailable` intermittently:** usually a baud-rate mismatch on a long/noisy cable run — lower the target link speed in **Configure**.
+*   **A zone never appears:** the integration only creates entities for zones it detects on Units 1-3 during startup discovery; zones added after startup need a Home Assistant restart or config entry reload.
+*   For deeper diagnosis, download the integration's **Diagnostics** file from the device page — it includes per-zone raw status and the coordinator's last poll result.
+
+---
+
+## 🧪 Testing
+
+`tests/test_api.py` covers the RS-232 command framing in `api.py` (pure functions, no Home Assistant or hardware required):
+
+```
+pip install pymonoprice pyserial
+python -m unittest discover -s tests -v
+```
+
+Entity/coordinator/config-flow behavior isn't covered yet — that needs `pytest-homeassistant-custom-component` wired up as a follow-up.

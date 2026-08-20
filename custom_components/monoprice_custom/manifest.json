@@ -7,8 +7,8 @@
   "documentation": "https://github.com/trooperthorn/ha_int_monoprice_6chan",
   "issue_tracker": "https://github.com/trooperthorn/ha_int_monoprice_6chan/issues",
   "iot_class": "local_polling",
-  "loggers": ["custom_components.monoprice"],
+  "loggers": ["custom_components.monoprice_custom"],
   "requirements": ["pymonoprice==0.5", "pyserial>=3.5"],
-  "version": "2026.08.13",
+  "version": "2026.08.20",
   "diagnostics": true
 }

@@ -1,12 +1,21 @@
 """Support for raw RS232 string execution."""
 from __future__ import annotations
 
+import voluptuous as vol
+
 from homeassistant.components.remote import RemoteEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .api import SUPPORTED_BAUD_RATES
+from .const import ATTR_BAUD_RATE
 from .__init__ import MonopriceConfigEntry
+from .device import controller_device_info
+
+SET_BAUD_RATE_SCHEMA = {vol.Required(ATTR_BAUD_RATE): vol.In(SUPPORTED_BAUD_RATES)}
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: MonopriceConfigEntry, async_add_entities: AddEntitiesCallback
@@ -14,6 +23,11 @@ async def async_setup_entry(
     """Set up the Monoprice remote platform."""
     coordinator = entry.runtime_data.coordinator
     async_add_entities([MonopriceRemote(coordinator, entry.entry_id)])
+
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        "set_baud_rate", SET_BAUD_RATE_SCHEMA, "async_set_baud_rate"
+    )
 
 
 class MonopriceRemote(CoordinatorEntity, RemoteEntity):
@@ -25,6 +39,7 @@ class MonopriceRemote(CoordinatorEntity, RemoteEntity):
     def __init__(self, coordinator, entry_id: str) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry_id}_rs232"
+        self._attr_device_info = controller_device_info(entry_id)
 
     @property
     def is_on(self) -> bool:
@@ -32,11 +47,12 @@ class MonopriceRemote(CoordinatorEntity, RemoteEntity):
         return True
 
     async def async_send_command(self, command: list[str], **kwargs) -> None:
-        """Send raw RS232 commands to the device."""
+        """Send raw RS232 commands to the device, serialized against polling."""
         for cmd in command:
-            # Ensure it ends with a carriage return as required by the manual
-            if not cmd.endswith("\r"):
-                cmd += "\r"
-            await self.hass.async_add_executor_job(
-                self.coordinator.api.serial.write, cmd.encode("ascii")
-            )
+            await self.hass.async_add_executor_job(self.coordinator.api.send_raw, cmd)
+
+    async def async_set_baud_rate(self, baud_rate: int) -> None:
+        """Negotiate the amplifier and local port to a new link speed."""
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.set_baud_rate, baud_rate
+        )

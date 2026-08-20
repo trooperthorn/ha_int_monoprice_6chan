@@ -3,8 +3,11 @@
   "domains": [
     "media_player",
     "sensor",
-    "number"
+    "number",
+    "switch",
+    "text",
+    "remote"
   ],
-  "iot_class": "local_push",
+  "iot_class": "local_polling",
   "homeassistant": "2026.5.0"
 }

@@ -4,7 +4,6 @@ from homeassistant.const import Platform
 DOMAIN = "monoprice"
 CONF_PORT = "port"
 
-# Platinum Platform list
 PLATFORMS = [
     Platform.MEDIA_PLAYER,
     Platform.SWITCH,
@@ -13,7 +12,6 @@ PLATFORMS = [
     Platform.TEXT,
     Platform.REMOTE,
 ]
-DOMAIN = "monoprice"
 
 # Configuration UI and Source Keys
 CONF_SOURCES = "sources"
@@ -23,11 +21,7 @@ CONF_SOURCE_3 = "source_3"
 CONF_SOURCE_4 = "source_4"
 CONF_SOURCE_5 = "source_5"
 CONF_SOURCE_6 = "source_6"
-
-# Service Attributes
-ATTR_BALANCE = "balance"
-ATTR_BASS = "bass"
-ATTR_TREBLE = "treble"
+CONF_BAUD_RATE = "baud_rate"
 
 # Compatibility strings for media_player.py imports
 CONF_NAME = "name"
@@ -43,8 +37,12 @@ SERVICE_RESTORE = "restore"
 SERVICE_SET_BALANCE = "set_balance"
 SERVICE_SET_BASS = "set_bass"
 SERVICE_SET_TREBLE = "set_treble"
+SERVICE_SET_BAUD_RATE = "set_baud_rate"
 
+ATTR_BAUD_RATE = "baud_rate"
 
+# Service field names - these are the raw 0-14/0-20 wire-protocol values,
+# distinct from the signed dB-style ranges number.py exposes to the UI.
 ATTR_BALANCE = "level"
 ATTR_BASS = "level"
 ATTR_TREBLE = "level"

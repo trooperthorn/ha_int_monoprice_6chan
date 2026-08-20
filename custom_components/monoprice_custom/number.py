@@ -6,16 +6,20 @@ from typing import Any
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
 from .__init__ import MonopriceConfigEntry
+from .device import zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
+
+# Wire protocol range for BS/TR is 0-14, where 0 is -7dB and 14 is +7dB
+# (per the RS-232 spec and pymonoprice's ZoneStatus). We display the
+# translated signed dB value to the user instead of the raw 0-14 code.
+EQ_WIRE_OFFSET = 7
 
 
 async def async_setup_entry(
@@ -65,25 +69,23 @@ class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
 
         self._attr_unique_id = f"{entry_id}_{self._zone_id}_{self._control_type}"
         self._attr_name = f"{control_type} level"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{entry_id}_{self._zone_id}")},
-            manufacturer="Monoprice",
-            model="6-Zone Amplifier",
-            name=f"Zone {self._zone_id}",
-        )
+        self._attr_device_info = zone_device_info(entry_id, self._zone_id)
 
         if control_type == "Balance":
-            self._attr_native_min_value = 0
-            self._attr_native_max_value = 20
-            self._attr_icon = "mdi:scale-balance"
+            # Wire range 0-20: 0 is full left, 10 is center, 20 is full right.
+            self._attr_native_min_value = -10
+            self._attr_native_max_value = 10
+            self._attr_translation_key = "balance"
         elif control_type == "Bass":
-            self._attr_native_min_value = -7
-            self._attr_native_max_value = 14
-            self._attr_icon = "mdi:speaker"
+            self._attr_native_min_value = -EQ_WIRE_OFFSET
+            self._attr_native_max_value = EQ_WIRE_OFFSET
+            self._attr_native_unit_of_measurement = "dB"
+            self._attr_translation_key = "bass"
         elif control_type == "Treble":
-            self._attr_native_min_value = -7
-            self._attr_native_max_value = 14
-            self._attr_icon = "mdi:surround-sound"
+            self._attr_native_min_value = -EQ_WIRE_OFFSET
+            self._attr_native_max_value = EQ_WIRE_OFFSET
+            self._attr_native_unit_of_measurement = "dB"
+            self._attr_translation_key = "treble"
 
     @property
     def entity_registry_enabled_default(self) -> bool:
@@ -103,32 +105,34 @@ class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return the current value."""
+        """Return the current value, translated into display units."""
         if not self.zone_data:
             return None
 
         if self._control_type == "Balance":
-            return self.zone_data.balance
+            return self.zone_data.balance - 10
         if self._control_type == "Bass":
-            return self.zone_data.bass
+            return self.zone_data.bass - EQ_WIRE_OFFSET
         if self._control_type == "Treble":
-            return self.zone_data.treble
+            return self.zone_data.treble - EQ_WIRE_OFFSET
         return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Update the current value asynchronously."""
-        target_val = int(value)
+        """Translate the display value back to wire units and send it."""
         if self._control_type == "Balance":
+            wire_value = int(value) + 10
             await self.hass.async_add_executor_job(
-                self.coordinator.api.set_balance, self._zone_id, target_val
+                self.coordinator.api.set_balance, self._zone_id, wire_value
             )
         elif self._control_type == "Bass":
+            wire_value = int(value) + EQ_WIRE_OFFSET
             await self.hass.async_add_executor_job(
-                self.coordinator.api.set_bass, self._zone_id, target_val
+                self.coordinator.api.set_bass, self._zone_id, wire_value
             )
         elif self._control_type == "Treble":
+            wire_value = int(value) + EQ_WIRE_OFFSET
             await self.hass.async_add_executor_job(
-                self.coordinator.api.set_treble, self._zone_id, target_val
+                self.coordinator.api.set_treble, self._zone_id, wire_value
             )
 
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)

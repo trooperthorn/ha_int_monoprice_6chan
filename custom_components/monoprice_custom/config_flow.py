@@ -15,7 +15,9 @@ from homeassistant import config_entries, core, exceptions
 from homeassistant.const import CONF_PORT
 from homeassistant.helpers import selector
 
+from .api import SUPPORTED_BAUD_RATES
 from .const import (
+    CONF_BAUD_RATE,
     CONF_SOURCE_1,
     CONF_SOURCE_2,
     CONF_SOURCE_3,
@@ -101,10 +103,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 info = await validate_input(self.hass, user_input)
+                if self.source == config_entries.SOURCE_RECONFIGURE:
+                    reconfigure_entry = self._get_reconfigure_entry()
+                    return self.async_update_reload_and_abort(
+                        reconfigure_entry, data=info
+                    )
                 return self.async_create_entry(title=user_input[CONF_PORT], data=info)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
-            except Exception:  
+            except Exception:
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
 
@@ -190,6 +197,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=data_schema, errors=errors
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Handle a reconfiguration request (changed cable/port)."""
+        return await self.async_step_user(user_input)
+
     @staticmethod
     @core.callback
     def async_get_options_flow(
@@ -224,15 +237,21 @@ class MonopriceOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         """Manage the options."""
         if user_input is not None:
-            return self.async_create_entry(
-                title="", data={CONF_SOURCES: _sources_from_config(user_input)}
-            )
+            baud_rate = user_input.pop(CONF_BAUD_RATE, None)
+            data = {CONF_SOURCES: _sources_from_config(user_input)}
+            if baud_rate is not None:
+                data[CONF_BAUD_RATE] = int(baud_rate)
+            return self.async_create_entry(title="", data=data)
 
         previous_sources = self._previous_sources()
+        current_baud = self.config_entry.options.get(CONF_BAUD_RATE, SUPPORTED_BAUD_RATES[0])
         options = {
             _key_for_source(idx + 1, source, previous_sources): str
             for idx, source in enumerate(SOURCES)
         }
+        options[
+            vol.Optional(CONF_BAUD_RATE, default=current_baud)
+        ] = vol.In(SUPPORTED_BAUD_RATES)
 
         return self.async_show_form(
             step_id="init",

@@ -12,6 +12,18 @@
           "source_5": "Name of source #5",
           "source_6": "Name of source #6"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure the device",
+        "data": {
+          "port": "[%key:common::config_flow::data::port%]",
+          "source_1": "[%key:component::monoprice::config::step::user::data::source_1%]",
+          "source_2": "[%key:component::monoprice::config::step::user::data::source_2%]",
+          "source_3": "[%key:component::monoprice::config::step::user::data::source_3%]",
+          "source_4": "[%key:component::monoprice::config::step::user::data::source_4%]",
+          "source_5": "[%key:component::monoprice::config::step::user::data::source_5%]",
+          "source_6": "[%key:component::monoprice::config::step::user::data::source_6%]"
+        }
       }
     },
     "error": {
@@ -19,7 +31,8 @@
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
     }
   },
   "options": {
@@ -32,9 +45,29 @@
           "source_3": "[%key:component::monoprice::config::step::user::data::source_3%]",
           "source_4": "[%key:component::monoprice::config::step::user::data::source_4%]",
           "source_5": "[%key:component::monoprice::config::step::user::data::source_5%]",
-          "source_6": "[%key:component::monoprice::config::step::user::data::source_6%]"
+          "source_6": "[%key:component::monoprice::config::step::user::data::source_6%]",
+          "baud_rate": "Target link speed (baud)"
         }
       }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "keypad_status": {
+        "name": "Keypad status",
+        "state": {
+          "connected": "Connected",
+          "disconnected": "Disconnected"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Could not connect to the Monoprice amplifier at {port}."
+    },
+    "unsupported_baud_rate": {
+      "message": "{baud} is not a baud rate this amplifier supports."
     }
   },
   "services": {
@@ -57,6 +90,16 @@
     "set_treble": {
       "name": "Set Treble",
       "description": "Set treble level."
+    },
+    "set_baud_rate": {
+      "name": "Set link speed",
+      "description": "Negotiate the amplifier and local RS-232 port to a new baud rate.",
+      "fields": {
+        "baud_rate": {
+          "name": "Baud rate",
+          "description": "Target link speed, in baud."
+        }
+      }
     }
   }
 }
