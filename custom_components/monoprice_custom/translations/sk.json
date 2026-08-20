@@ -5,6 +5,12 @@
                 "data": {
                     "port": "Port"
                 }
+            },
+            "reconfigure": {
+                "title": "Preconfigurova\u0165 zariadenie",
+                "data": {
+                    "port": "Port"
+                }
             }
         }
     }

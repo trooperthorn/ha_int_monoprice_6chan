@@ -6,7 +6,7 @@ from typing import Any
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
-from .__init__ import MonopriceConfigEntry
+from . import MonopriceConfigEntry
 
 TO_REDACT = {"unique_id"}
 

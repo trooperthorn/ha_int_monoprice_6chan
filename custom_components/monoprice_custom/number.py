@@ -9,7 +9,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .__init__ import MonopriceConfigEntry
+from . import MonopriceConfigEntry
+from .coordinator import MonopriceCoordinator
 from .device import zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
 
     def __init__(
         self,
-        coordinator,
+        coordinator: MonopriceCoordinator,
         entry_id: str,
         zone_id: int,
         control_type: str,
@@ -110,11 +111,11 @@ class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
             return None
 
         if self._control_type == "Balance":
-            return self.zone_data.balance - 10
+            return float(self.zone_data.balance - 10)
         if self._control_type == "Bass":
-            return self.zone_data.bass - EQ_WIRE_OFFSET
+            return float(self.zone_data.bass - EQ_WIRE_OFFSET)
         if self._control_type == "Treble":
-            return self.zone_data.treble - EQ_WIRE_OFFSET
+            return float(self.zone_data.treble - EQ_WIRE_OFFSET)
         return None
 
     async def async_set_native_value(self, value: float) -> None:

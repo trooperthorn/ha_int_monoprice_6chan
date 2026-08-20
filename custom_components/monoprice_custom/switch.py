@@ -9,7 +9,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .__init__ import MonopriceConfigEntry
+from . import MonopriceConfigEntry
+from .coordinator import MonopriceCoordinator
 from .device import zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, entry_id: str, zone_id: int, is_master: bool = False) -> None:
+    def __init__(self, coordinator: MonopriceCoordinator, entry_id: str, zone_id: int, is_master: bool = False) -> None:
         """Initialize PA switch."""
         super().__init__(coordinator)
         self._zone_id = zone_id
@@ -88,7 +89,7 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, entry_id: str, zone_id: int, is_master: bool = False) -> None:
+    def __init__(self, coordinator: MonopriceCoordinator, entry_id: str, zone_id: int, is_master: bool = False) -> None:
         """Initialize DND switch."""
         super().__init__(coordinator)
         self._zone_id = zone_id

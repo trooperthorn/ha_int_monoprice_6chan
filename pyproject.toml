@@ -1,0 +1,17 @@
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unused_ignores = true
+show_error_codes = true
+files = ["custom_components/monoprice_custom"]
+
+# Home Assistant core and pymonoprice ship their own inline types but aren't
+# installed as a stub-only package here; ignore missing imports for them
+# specifically rather than relaxing strict mode for our own code.
+[[tool.mypy.overrides]]
+module = ["homeassistant.*", "pymonoprice.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -13,6 +13,12 @@
                     "port": "Port"
                 },
                 "title": "Anslut till enheten"
+            },
+            "reconfigure": {
+                "title": "Konfigurera om enheten",
+                "data": {
+                    "port": "Port"
+                }
             }
         }
     }

@@ -1,6 +1,8 @@
 """Support for raw RS232 string execution."""
 from __future__ import annotations
 
+from typing import Any
+
 import voluptuous as vol
 
 from homeassistant.components.remote import RemoteEntity
@@ -11,7 +13,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import SUPPORTED_BAUD_RATES
 from .const import ATTR_BAUD_RATE
-from .__init__ import MonopriceConfigEntry
+from . import MonopriceConfigEntry
+from .coordinator import MonopriceCoordinator
 from .device import controller_device_info
 
 SET_BAUD_RATE_SCHEMA = {vol.Required(ATTR_BAUD_RATE): vol.In(SUPPORTED_BAUD_RATES)}
@@ -36,7 +39,7 @@ class MonopriceRemote(CoordinatorEntity, RemoteEntity):
     _attr_has_entity_name = True
     _attr_name = "RS232 Controller"
 
-    def __init__(self, coordinator, entry_id: str) -> None:
+    def __init__(self, coordinator: MonopriceCoordinator, entry_id: str) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry_id}_rs232"
         self._attr_device_info = controller_device_info(entry_id)
@@ -46,7 +49,7 @@ class MonopriceRemote(CoordinatorEntity, RemoteEntity):
         """Always true if the integration is running."""
         return True
 
-    async def async_send_command(self, command: list[str], **kwargs) -> None:
+    async def async_send_command(self, command: list[str], **kwargs: Any) -> None:
         """Send raw RS232 commands to the device, serialized against polling."""
         for cmd in command:
             await self.hass.async_add_executor_job(self.coordinator.api.send_raw, cmd)

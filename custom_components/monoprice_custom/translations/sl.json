@@ -19,6 +19,18 @@
                     "source_6": "Ime vira #6"
                 },
                 "title": "Pove\u017eite se z napravo"
+            },
+            "reconfigure": {
+                "title": "Znova konfiguriraj napravo",
+                "data": {
+                    "port": "Serijska vrata",
+                    "source_1": "Ime vira #1",
+                    "source_2": "Ime vira #2",
+                    "source_3": "Ime vira #3",
+                    "source_4": "Ime vira #4",
+                    "source_5": "Ime vira #5",
+                    "source_6": "Ime vira #6"
+                }
             }
         }
     },
@@ -31,7 +43,8 @@
                     "source_3": "Ime vira #3",
                     "source_4": "Ime vira #4",
                     "source_5": "Ime vira #5",
-                    "source_6": "Ime vira #6"
+                    "source_6": "Ime vira #6",
+                    "baud_rate": "Ciljna hitrost povezave (baud)"
                 },
                 "title": "Konfigurirajte vire"
             }

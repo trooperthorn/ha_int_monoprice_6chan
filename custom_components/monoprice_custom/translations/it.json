@@ -19,6 +19,18 @@
                     "source_6": "Nome della fonte n. 6"
                 },
                 "title": "Connettersi al dispositivo"
+            },
+            "reconfigure": {
+                "title": "Riconfigura il dispositivo",
+                "data": {
+                    "port": "Porta",
+                    "source_1": "Nome della fonte n. 1",
+                    "source_2": "Nome della fonte n. 2",
+                    "source_3": "Nome della fonte n. 3",
+                    "source_4": "Nome della fonte n. 4",
+                    "source_5": "Nome della fonte n. 5",
+                    "source_6": "Nome della fonte n. 6"
+                }
             }
         }
     },
@@ -31,7 +43,8 @@
                     "source_3": "Nome della fonte n. 3",
                     "source_4": "Nome della fonte n. 4",
                     "source_5": "Nome della fonte n. 5",
-                    "source_6": "Nome della fonte n. 6"
+                    "source_6": "Nome della fonte n. 6",
+                    "baud_rate": "Velocit\u00e0 di collegamento target (baud)"
                 },
                 "title": "Configurare le sorgenti"
             }

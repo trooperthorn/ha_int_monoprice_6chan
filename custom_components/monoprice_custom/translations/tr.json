@@ -19,6 +19,18 @@
                     "source_6": "Kaynak #6 ad\u0131"
                 },
                 "title": "Cihaza ba\u011flan\u0131n"
+            },
+            "reconfigure": {
+                "title": "Cihaz\u0131 yeniden yap\u0131land\u0131r",
+                "data": {
+                    "port": "Port",
+                    "source_1": "Kaynak #1 ad\u0131",
+                    "source_2": "Kaynak #2 ad\u0131",
+                    "source_3": "Kaynak #3 ad\u0131",
+                    "source_4": "Kaynak #4 ad\u0131",
+                    "source_5": "Kaynak #5 ad\u0131",
+                    "source_6": "Kaynak #6 ad\u0131"
+                }
             }
         }
     },
@@ -31,7 +43,8 @@
                     "source_3": "Kaynak #3 ad\u0131",
                     "source_4": "Kaynak #4 ad\u0131",
                     "source_5": "Kaynak #5 ad\u0131",
-                    "source_6": "Kaynak #6 ad\u0131"
+                    "source_6": "Kaynak #6 ad\u0131",
+                    "baud_rate": "Hedef ba\u011flant\u0131 h\u0131z\u0131 (baud)"
                 },
                 "title": "Kaynaklar\u0131 yap\u0131land\u0131r"
             }

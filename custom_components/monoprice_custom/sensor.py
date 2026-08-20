@@ -9,7 +9,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .__init__ import MonopriceConfigEntry
+from . import MonopriceConfigEntry
+from .coordinator import MonopriceCoordinator
 from .device import zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ class MonopriceKeypadSensor(CoordinatorEntity, SensorEntity):
     _attr_options = KEYPAD_OPTIONS
     _attr_icon = "mdi:dialpad"
 
-    def __init__(self, coordinator, entry_id: str, zone_id: int) -> None:
+    def __init__(self, coordinator: MonopriceCoordinator, entry_id: str, zone_id: int) -> None:
         """Initialize keypad sensor."""
         super().__init__(coordinator)
         self._zone_id = zone_id

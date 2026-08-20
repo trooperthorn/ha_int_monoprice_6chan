@@ -19,6 +19,18 @@
                     "source_6": "Forr\u00e1s neve #6"
                 },
                 "title": "Csatlakoz\u00e1s az eszk\u00f6zh\u00f6z"
+            },
+            "reconfigure": {
+                "title": "Eszk\u00f6z \u00fajrakonfigur\u00e1l\u00e1sa",
+                "data": {
+                    "port": "Port",
+                    "source_1": "Forr\u00e1s neve #1",
+                    "source_2": "Forr\u00e1s neve #2",
+                    "source_3": "Forr\u00e1s neve #3",
+                    "source_4": "Forr\u00e1s neve #4",
+                    "source_5": "Forr\u00e1s neve #5",
+                    "source_6": "Forr\u00e1s neve #6"
+                }
             }
         }
     },
@@ -31,7 +43,8 @@
                     "source_3": "Forr\u00e1s neve #3",
                     "source_4": "Forr\u00e1s neve #4",
                     "source_5": "Forr\u00e1s neve #5",
-                    "source_6": "Forr\u00e1s neve #6"
+                    "source_6": "Forr\u00e1s neve #6",
+                    "baud_rate": "C\u00e9l kapcsolatsebess\u00e9g (baud)"
                 },
                 "title": "Forr\u00e1sok konfigur\u00e1l\u00e1sa"
             }

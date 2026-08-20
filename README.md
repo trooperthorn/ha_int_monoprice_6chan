@@ -156,11 +156,26 @@ If you move the amplifier to a different USB/serial port, use **Settings → Dev
 
 ## 🧪 Testing
 
-`tests/test_api.py` covers the RS-232 command framing in `api.py` (pure functions, no Home Assistant or hardware required):
-
 ```
-pip install pymonoprice pyserial
+pip install pymonoprice pyserial voluptuous
 python -m unittest discover -s tests -v
 ```
 
-Entity/coordinator/config-flow behavior isn't covered yet — that needs `pytest-homeassistant-custom-component` wired up as a follow-up.
+* `test_api.py` covers the RS-232 command framing in `api.py` directly against the manufacturer spec (pure functions, no Home Assistant needed).
+* `test_coordinator.py` and `test_config_flow.py` exercise the coordinator's baud-negotiation/discovery/refresh-merge logic and the config flow's port-conflict/source-parsing helpers using a small hand-written `homeassistant` stub (`ha_stubs.py`) instead of the full framework — see the module docstring in `ha_stubs.py` for exactly what it fakes and why. It caught a real bug during development: the baud negotiation's "already at target" fast path trusted the local port object's cached baud attribute without re-verifying the amp actually responds there, which could wedge silently after a mid-session reconnect.
+
+This isn't a substitute for `pytest-homeassistant-custom-component`, which verifies against the real config-entry lifecycle, entity registry, and translations. That package (and `homeassistant` itself) wasn't installable in the environment this rework was developed in — its full extras closure pulls in hardware-specific dependencies (e.g. `PyRIC` for Bluetooth) that fail to build against modern `setuptools` without a matching toolchain. If your dev environment can install it:
+
+```
+pip install pytest-homeassistant-custom-component
+pytest tests/
+```
+
+### Type checking
+
+`pyproject.toml` configures `mypy --strict` scoped to `custom_components/monoprice_custom`, with `homeassistant.*`/`pymonoprice.*` set to `ignore_missing_imports` since the real `homeassistant` package isn't installed here either (same root cause as above). Every finding that's actually about our own code (missing annotations, `Any`-returns, protocol typing) is fixed; what's left is exclusively `homeassistant`-classes-resolving-to-`Any` cascade errors (e.g. "Class cannot subclass CoordinatorEntity (has type Any)"), which disappear once run with `homeassistant` actually installed:
+
+```
+pip install mypy types-pyserial voluptuous
+mypy
+```

@@ -3,3 +3,5 @@
 custom_components/media_player_old.py
 __pycache__/
 *.pyc
+.mypy_cache/
+.pytest_cache/

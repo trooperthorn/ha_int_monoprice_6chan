@@ -19,7 +19,8 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import ATTR_BALANCE, ATTR_BASS, ATTR_TREBLE, CONF_SOURCES
 from .device import zone_device_info
-from .__init__ import MonopriceConfigEntry
+from .coordinator import MonopriceCoordinator
+from . import MonopriceConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
     _attr_name = None
     _attr_sound_mode_list = ["Normal", "High Bass", "Medium Bass", "Low Bass"]
 
-    def __init__(self, coordinator, entry_id: str, zone_id: int, sources: tuple[dict[int, str], dict[str, int], list[str]]) -> None:
+    def __init__(self, coordinator: MonopriceCoordinator, entry_id: str, zone_id: int, sources: tuple[dict[int, str], dict[str, int], list[str]]) -> None:
         super().__init__(coordinator)
         self._zone_id = zone_id
         self._source_id_name, self._source_name_id, self._attr_source_list = sources

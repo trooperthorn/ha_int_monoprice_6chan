@@ -19,6 +19,18 @@
                     "source_6": "Nama sumber #6"
                 },
                 "title": "Hubungkan ke perangkat"
+            },
+            "reconfigure": {
+                "title": "Konfigurasi ulang perangkat",
+                "data": {
+                    "port": "Port",
+                    "source_1": "Nama sumber #1",
+                    "source_2": "Nama sumber #2",
+                    "source_3": "Nama sumber #3",
+                    "source_4": "Nama sumber #4",
+                    "source_5": "Nama sumber #5",
+                    "source_6": "Nama sumber #6"
+                }
             }
         }
     },
@@ -31,7 +43,8 @@
                     "source_3": "Nama sumber #3",
                     "source_4": "Nama sumber #4",
                     "source_5": "Nama sumber #5",
-                    "source_6": "Nama sumber #6"
+                    "source_6": "Nama sumber #6",
+                    "baud_rate": "Kecepatan tautan target (baud)"
                 },
                 "title": "Konfigurasikan sumber"
             }

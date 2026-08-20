@@ -19,6 +19,18 @@
                     "source_6": "Nom de la source #6"
                 },
                 "title": "Se connecter \u00e0 l'appareil"
+            },
+            "reconfigure": {
+                "title": "Reconfigurer l'appareil",
+                "data": {
+                    "port": "Port",
+                    "source_1": "Nom de la source #1",
+                    "source_2": "Nom de la source #2",
+                    "source_3": "Nom de la source #3",
+                    "source_4": "Nom de la source #4",
+                    "source_5": "Nom de la source #5",
+                    "source_6": "Nom de la source #6"
+                }
             }
         }
     },
@@ -31,7 +43,8 @@
                     "source_3": "Nom de la source #3",
                     "source_4": "Nom de la source #4",
                     "source_5": "Nom de la source #5",
-                    "source_6": "Nom de la source #6"
+                    "source_6": "Nom de la source #6",
+                    "baud_rate": "D\u00e9bit de liaison cible (bauds)"
                 },
                 "title": "Configurer les sources"
             }

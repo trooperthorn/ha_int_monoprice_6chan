@@ -53,17 +53,17 @@ def _format_zone_field_status(zone: int, field: str) -> bytes:
 class MonopriceExtended(Monoprice):
     """Monoprice client extended with PA/DND/rename/baud commands."""
 
-    @synchronized
+    @synchronized  # type: ignore[arg-type]  # decorator is typed against the base Monoprice class
     def set_pa(self, zone: int, pa: bool) -> None:
         """Turn the zone's paging (PA) override on or off."""
         self._process_request(_format_set_pa(zone, pa))
 
-    @synchronized
+    @synchronized  # type: ignore[arg-type]  # decorator is typed against the base Monoprice class
     def set_dnd(self, zone: int, dnd: bool) -> None:
         """Turn the zone's do-not-disturb (DT) flag on or off."""
         self._process_request(_format_set_dnd(zone, dnd))
 
-    @synchronized
+    @synchronized  # type: ignore[arg-type]  # decorator is typed against the base Monoprice class
     def rename_source(self, index: int, name: str) -> None:
         """Rename source `index` (1-6) on the keypad displays.
 
@@ -72,12 +72,12 @@ class MonopriceExtended(Monoprice):
         """
         self._process_request(_format_rename_source(index, name.ljust(8)))
 
-    @synchronized
+    @synchronized  # type: ignore[arg-type]  # decorator is typed against the base Monoprice class
     def set_keypad_message(self, name: str) -> None:
         """Set the boot welcome message shown on zone keypads."""
         self._process_request(_format_set_keypad_message(name.ljust(8)))
 
-    @synchronized
+    @synchronized  # type: ignore[arg-type]  # decorator is typed against the base Monoprice class
     def zone_field_status(self, zone: int, field: str) -> str:
         """Query a single status field (e.g. "VO") instead of the full block.
 
@@ -87,14 +87,14 @@ class MonopriceExtended(Monoprice):
         """
         return self._process_request(_format_zone_field_status(zone, field))
 
-    @synchronized
+    @synchronized  # type: ignore[arg-type]  # decorator is typed against the base Monoprice class
     def send_raw(self, command: str) -> str:
         """Send an arbitrary already-formatted command, locked against polling."""
         if not command.endswith("\r"):
             command += "\r"
         return self._process_request(command.encode("ascii"))
 
-    @synchronized
+    @synchronized  # type: ignore[arg-type]  # decorator is typed against the base Monoprice class
     def set_baud_rate(self, baud: int) -> bool:
         """Switch the amplifier and local port to `baud`.
 

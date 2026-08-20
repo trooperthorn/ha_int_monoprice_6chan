@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 import logging
+from typing import Any
 
 from serial import SerialException, SerialTimeoutException
 
@@ -90,7 +91,7 @@ class MonopriceCoordinator(DataUpdateCoordinator):
         new_data[zone_id] = status
         self.async_set_updated_data(new_data)
 
-    async def _async_update_data(self):
+    async def _async_update_data(self) -> dict[int, Any]:
         """Fetch data from the amp via executor job."""
         try:
             if not self._baud_optimized:
@@ -168,13 +169,22 @@ class MonopriceCoordinator(DataUpdateCoordinator):
     def _async_optimize_baud_rate_sync(self) -> None:
         """Synchronous wrapper so the whole negotiation runs in one executor job."""
         target = self.target_baud_rate
-        current = self.api._port.baudrate
 
-        if current == target:
-            return
+        if self.api._port.baudrate == target:
+            # The local port object already claims to be at the target rate
+            # (e.g. a mid-session reconnect that didn't reset it) - confirm
+            # the amp actually answers there before trusting it, rather than
+            # skipping verification entirely and risking a silent wedge if
+            # the amp itself fell back to 9600 (e.g. it was power-cycled).
+            try:
+                self.api.zone_status(11)
+                return
+            except Exception:
+                pass
 
         try:
             self.api.zone_status(11)
+            current = self.api._port.baudrate
         except Exception:
             self.api._port.baudrate = POWER_ON_BAUD_RATE
             self.api._port.reset_input_buffer()

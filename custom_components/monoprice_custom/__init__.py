@@ -1,6 +1,7 @@
 """The Monoprice 6-Zone Amplifier integration."""
 import logging
 from dataclasses import dataclass
+from typing import TypeAlias
 
 from serial import SerialException
 
@@ -22,8 +23,7 @@ class MonopriceData:
     coordinator: MonopriceCoordinator
     first_run: bool
 
-# Backwards-compatible typing
-MonopriceConfigEntry = ConfigEntry
+MonopriceConfigEntry: TypeAlias = ConfigEntry[MonopriceData]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: MonopriceConfigEntry) -> bool:
@@ -70,7 +70,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: MonopriceConfigEntry) -
     """Unload a config entry."""
     # The undo_listener and hass.data.pop() logic is no longer needed.
     # async_on_unload handles the listener, and runtime_data is destroyed automatically.
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    return bool(await hass.config_entries.async_unload_platforms(entry, PLATFORMS))
 
 
 async def _update_listener(hass: HomeAssistant, entry: MonopriceConfigEntry) -> None:

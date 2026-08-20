@@ -12,6 +12,7 @@ import serial.tools.list_ports
 import voluptuous as vol
 
 from homeassistant import config_entries, core, exceptions
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_PORT
 from homeassistant.helpers import selector
 
@@ -96,9 +97,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None):
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
-        errors = {}
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -124,7 +127,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ha_configured_ports[path] = entry.domain
 
         # 2. Smart Hardware Probe (Direct RS232 Protocol Check)
-        def _get_port_status(port):
+        def _get_port_status(port: Any) -> dict[str, str]:
             device_path = port.device
             resolved_path = _resolve_path(device_path)
             
@@ -180,18 +183,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
         # Build schema using the dynamic dropdown
-        data_schema = vol.Schema(
-            {
-                vol.Required(CONF_PORT): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=port_options,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        custom_value=True,
-                    )
-                ),
-                **OPTIONS_FOR_DATA,
-            }
-        )
+        schema_dict: dict[Any, Any] = {
+            vol.Required(CONF_PORT): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=port_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    custom_value=True,
+                )
+            ),
+            **OPTIONS_FOR_DATA,
+        }
+        data_schema = vol.Schema(schema_dict)
 
         return self.async_show_form(
             step_id="user", data_schema=data_schema, errors=errors
@@ -199,7 +201,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
-    ):
+    ) -> ConfigFlowResult:
         """Handle a reconfiguration request (changed cable/port)."""
         return await self.async_step_user(user_input)
 
@@ -232,20 +234,22 @@ class MonopriceOptionsFlowHandler(config_entries.OptionsFlow):
             previous = self.config_entry.options[CONF_SOURCES]
         else:
             previous = self.config_entry.data[CONF_SOURCES]
-        return previous
+        return dict(previous)
 
-    async def async_step_init(self, user_input: dict[str, Any] | None = None):
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
             baud_rate = user_input.pop(CONF_BAUD_RATE, None)
-            data = {CONF_SOURCES: _sources_from_config(user_input)}
+            data: dict[str, Any] = {CONF_SOURCES: _sources_from_config(user_input)}
             if baud_rate is not None:
                 data[CONF_BAUD_RATE] = int(baud_rate)
             return self.async_create_entry(title="", data=data)
 
         previous_sources = self._previous_sources()
         current_baud = self.config_entry.options.get(CONF_BAUD_RATE, SUPPORTED_BAUD_RATES[0])
-        options = {
+        options: dict[Any, Any] = {
             _key_for_source(idx + 1, source, previous_sources): str
             for idx, source in enumerate(SOURCES)
         }

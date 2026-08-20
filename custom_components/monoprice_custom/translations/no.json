@@ -19,6 +19,18 @@
                     "source_6": "Navn p\u00e5 kilde #6"
                 },
                 "title": "Koble til enheten"
+            },
+            "reconfigure": {
+                "title": "Konfigurer enheten p\u00e5 nytt",
+                "data": {
+                    "port": "Port",
+                    "source_1": "Navn p\u00e5 kilden #1",
+                    "source_2": "Navn p\u00e5 kilden #2",
+                    "source_3": "Navn p\u00e5 kilden #3",
+                    "source_4": "Navn p\u00e5 kilde #4",
+                    "source_5": "Navn p\u00e5 kilde #5",
+                    "source_6": "Navn p\u00e5 kilde #6"
+                }
             }
         }
     },
@@ -31,7 +43,8 @@
                     "source_3": "Navn p\u00e5 kilde #3",
                     "source_4": "Navn p\u00e5 kilde #4",
                     "source_5": "Navn p\u00e5 kilde #5",
-                    "source_6": "Navn p\u00e5 kilde #6"
+                    "source_6": "Navn p\u00e5 kilde #6",
+                    "baud_rate": "M\u00e5l-linjehastighet (baud)"
                 },
                 "title": "Konfigurer kilder"
             }

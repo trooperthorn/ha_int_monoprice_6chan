@@ -19,6 +19,18 @@
                     "source_6": "\u4f86\u6e90 #6 \u540d\u7a31"
                 },
                 "title": "\u9023\u7dda\u81f3\u88dd\u7f6e"
+            },
+            "reconfigure": {
+                "title": "\u91cd\u65b0\u8a2d\u5b9a\u88dd\u7f6e",
+                "data": {
+                    "port": "\u901a\u8a0a\u57e0",
+                    "source_1": "\u4f86\u6e90 #1 \u540d\u7a31",
+                    "source_2": "\u4f86\u6e90 #2 \u540d\u7a31",
+                    "source_3": "\u4f86\u6e90 #3 \u540d\u7a31",
+                    "source_4": "\u4f86\u6e90 #4 \u540d\u7a31",
+                    "source_5": "\u4f86\u6e90 #5 \u540d\u7a31",
+                    "source_6": "\u4f86\u6e90 #6 \u540d\u7a31"
+                }
             }
         }
     },
@@ -31,7 +43,8 @@
                     "source_3": "\u4f86\u6e90 #3 \u540d\u7a31",
                     "source_4": "\u4f86\u6e90 #4 \u540d\u7a31",
                     "source_5": "\u4f86\u6e90 #5 \u540d\u7a31",
-                    "source_6": "\u4f86\u6e90 #6 \u540d\u7a31"
+                    "source_6": "\u4f86\u6e90 #6 \u540d\u7a31",
+                    "baud_rate": "\u76ee\u6a19\u9023\u7dda\u901f\u5ea6 (baud)"
                 },
                 "title": "\u8a2d\u5b9a\u4f86\u6e90"
             }
