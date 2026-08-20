@@ -1,0 +1,55 @@
+{
+  "entity": {
+    "sensor": {
+      "keypad_status": {
+        "default": "mdi:dialpad",
+        "state": {
+          "connected": "mdi:dialpad",
+          "disconnected": "mdi:dialpad-off"
+        }
+      }
+    },
+    "switch": {
+      "pa_switch": {
+        "default": "mdi:bullhorn-outline",
+        "state": {
+          "on": "mdi:bullhorn"
+        }
+      },
+      "dnd_switch": {
+        "default": "mdi:weather-night"
+      }
+    },
+    "number": {
+      "balance": {
+        "default": "mdi:scale-balance"
+      },
+      "bass": {
+        "default": "mdi:speaker"
+      },
+      "treble": {
+        "default": "mdi:surround-sound"
+      }
+    }
+  },
+  "services": {
+    "snapshot": {
+      "service": "mdi:camera"
+    },
+    "restore": {
+      "service": "mdi:restore"
+    },
+    "set_balance": {
+      "service": "mdi:scale-balance"
+    },
+    "set_bass": {
+      "service": "mdi:speaker"
+    },
+    "set_treble": {
+      "service": "mdi:surround-sound"
+    },
+    "set_baud_rate": {
+      "service": "mdi:speedometer"
+    }
+  }
+}

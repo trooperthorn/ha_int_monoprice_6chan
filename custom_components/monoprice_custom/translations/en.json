@@ -1,7 +1,8 @@
 {
     "config": {
         "abort": {
-            "already_configured": "Device is already configured"
+            "already_configured": "Device is already configured",
+            "reconfigure_successful": "Re-configuration was successful"
         },
         "error": {
             "cannot_connect": "Failed to connect",
@@ -19,6 +20,18 @@
                     "source_6": "Name of source #6"
                 },
                 "title": "Connect to the device"
+            },
+            "reconfigure": {
+                "data": {
+                    "port": "Port",
+                    "source_1": "Name of source #1",
+                    "source_2": "Name of source #2",
+                    "source_3": "Name of source #3",
+                    "source_4": "Name of source #4",
+                    "source_5": "Name of source #5",
+                    "source_6": "Name of source #6"
+                },
+                "title": "Reconfigure the device"
             }
         }
     },
@@ -31,9 +44,61 @@
                     "source_3": "Name of source #3",
                     "source_4": "Name of source #4",
                     "source_5": "Name of source #5",
-                    "source_6": "Name of source #6"
+                    "source_6": "Name of source #6",
+                    "baud_rate": "Target link speed (baud)"
                 },
                 "title": "Configure sources"
+            }
+        }
+    },
+    "entity": {
+        "sensor": {
+            "keypad_status": {
+                "name": "Keypad status",
+                "state": {
+                    "connected": "Connected",
+                    "disconnected": "Disconnected"
+                }
+            }
+        }
+    },
+    "exceptions": {
+        "cannot_connect": {
+            "message": "Could not connect to the Monoprice amplifier at {port}."
+        },
+        "unsupported_baud_rate": {
+            "message": "{baud} is not a baud rate this amplifier supports."
+        }
+    },
+    "services": {
+        "snapshot": {
+            "name": "Snapshot",
+            "description": "Takes a snapshot of the media player zone."
+        },
+        "restore": {
+            "name": "Restore",
+            "description": "Restores a snapshot of the media player zone."
+        },
+        "set_balance": {
+            "name": "Set Balance",
+            "description": "Set the zone balance level."
+        },
+        "set_bass": {
+            "name": "Set Bass",
+            "description": "Set the bass level."
+        },
+        "set_treble": {
+            "name": "Set Treble",
+            "description": "Set treble level."
+        },
+        "set_baud_rate": {
+            "name": "Set link speed",
+            "description": "Negotiate the amplifier and local RS-232 port to a new baud rate.",
+            "fields": {
+                "baud_rate": {
+                    "name": "Baud rate",
+                    "description": "Target link speed, in baud."
+                }
             }
         }
     }

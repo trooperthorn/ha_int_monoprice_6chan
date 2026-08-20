@@ -6,12 +6,11 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
 from .__init__ import MonopriceConfigEntry
+from .device import zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,21 +49,12 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self._zone_id = zone_id
         self._is_master = is_master
-        
+
         # Keep entity name simple so it appends cleanly to Device Name
         self._attr_name = "PA" if is_master else "Public Address"
-        self._attr_icon = "mdi:bullhorn"
+        self._attr_translation_key = "pa_switch"
         self._attr_unique_id = f"{entry_id}_{zone_id}_pa_switch"
-
-        dev_id = f"{entry_id}_{zone_id}"
-        dev_name = f"Unit {zone_id // 10} Master" if is_master else f"Zone {zone_id}"
-
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, dev_id)},
-            manufacturer="Monoprice",
-            model="6-Zone Amplifier",
-            name=dev_name,
-        )
+        self._attr_device_info = zone_device_info(entry_id, zone_id)
 
     @property
     def entity_registry_enabled_default(self) -> bool:
@@ -83,14 +73,14 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
         await self.hass.async_add_executor_job(
             self.coordinator.api.set_pa, self._zone_id, True
         )
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn PA off."""
         await self.hass.async_add_executor_job(
             self.coordinator.api.set_pa, self._zone_id, False
         )
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)
 
 
 class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
@@ -103,22 +93,11 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self._zone_id = zone_id
         self._is_master = is_master
-        
-        # Change this to "Master DND"
+
         self._attr_name = "Master DND" if is_master else "Do Not Disturb"
-        
-        self._attr_icon = "mdi:weather-night"
+        self._attr_translation_key = "dnd_switch"
         self._attr_unique_id = f"{entry_id}_{zone_id}_dnd_switch"
-
-        dev_id = f"{entry_id}_{zone_id}"
-        dev_name = f"Unit {zone_id // 10} Master" if is_master else f"Zone {zone_id}"
-
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, dev_id)},
-            manufacturer="Monoprice",
-            model="6-Zone Amplifier",
-            name=dev_name,
-        )
+        self._attr_device_info = zone_device_info(entry_id, zone_id)
 
     @property
     def entity_registry_enabled_default(self) -> bool:
@@ -137,11 +116,11 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
         await self.hass.async_add_executor_job(
             self.coordinator.api.set_dnd, self._zone_id, True
         )
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn DND off."""
         await self.hass.async_add_executor_job(
             self.coordinator.api.set_dnd, self._zone_id, False
         )
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)

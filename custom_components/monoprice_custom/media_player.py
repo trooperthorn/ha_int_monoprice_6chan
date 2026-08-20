@@ -14,11 +14,11 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv, entity_platform
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTR_BALANCE, ATTR_BASS, ATTR_TREBLE, CONF_SOURCES, DOMAIN
+from .const import ATTR_BALANCE, ATTR_BASS, ATTR_TREBLE, CONF_SOURCES
+from .device import zone_device_info
 from .__init__ import MonopriceConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,12 +79,7 @@ class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
         self._zone_id = zone_id
         self._source_id_name, self._source_name_id, self._attr_source_list = sources
         self._attr_unique_id = f"{entry_id}_{self._zone_id}"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{entry_id}_{self._zone_id}")},
-            manufacturer="Monoprice",
-            model="6-Zone Amplifier",
-            name=f"Zone {self._zone_id}" if self._zone_id not in [10, 20, 30] else f"Unit {self._zone_id // 10} Master",
-        )
+        self._attr_device_info = zone_device_info(entry_id, self._zone_id)
         self._attr_supported_features = (
             MediaPlayerEntityFeature.VOLUME_MUTE | MediaPlayerEntityFeature.VOLUME_SET |
             MediaPlayerEntityFeature.VOLUME_STEP | MediaPlayerEntityFeature.TURN_ON |
@@ -130,40 +125,40 @@ class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
 
     async def async_turn_on(self) -> None:
         await self.hass.async_add_executor_job(self.coordinator.api.set_power, self._zone_id, True)
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_turn_off(self) -> None:
         await self.hass.async_add_executor_job(self.coordinator.api.set_power, self._zone_id, False)
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_mute_volume(self, mute: bool) -> None:
         await self.hass.async_add_executor_job(self.coordinator.api.set_mute, self._zone_id, mute)
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_set_volume_level(self, volume: float) -> None:
         await self.hass.async_add_executor_job(self.coordinator.api.set_volume, self._zone_id, round(volume * MAX_VOLUME))
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_volume_up(self) -> None:
         if self.volume_level is not None:
             await self.hass.async_add_executor_job(self.coordinator.api.set_volume, self._zone_id, min(round(self.volume_level * MAX_VOLUME) + 1, int(MAX_VOLUME)))
-            await self.coordinator.async_request_refresh()
+            await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_volume_down(self) -> None:
         if self.volume_level is not None:
             await self.hass.async_add_executor_job(self.coordinator.api.set_volume, self._zone_id, max(round(self.volume_level * MAX_VOLUME) - 1, 0))
-            await self.coordinator.async_request_refresh()
+            await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_select_source(self, source: str) -> None:
         if source in self._source_name_id:
             await self.hass.async_add_executor_job(self.coordinator.api.set_source, self._zone_id, self._source_name_id[source])
-            await self.coordinator.async_request_refresh()
+            await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_select_sound_mode(self, sound_mode: str) -> None:
         self._sound_mode = sound_mode
         bass_level = {"High Bass": 12, "Medium Bass": 10, "Low Bass": 3}.get(sound_mode, 7)
         await self.hass.async_add_executor_job(self.coordinator.api.set_bass, self._zone_id, bass_level)
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_snapshot(self) -> None:
         self._snapshot = await self.hass.async_add_executor_job(self.coordinator.api.zone_status, self._zone_id)
@@ -171,16 +166,16 @@ class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
     async def async_restore(self) -> None:
         if self._snapshot:
             await self.hass.async_add_executor_job(self.coordinator.api.restore_zone, self._snapshot)
-            await self.coordinator.async_request_refresh()
+            await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_set_balance(self, balance: int) -> None:
         await self.hass.async_add_executor_job(self.coordinator.api.set_balance, self._zone_id, balance)
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_set_bass(self, bass: int) -> None:
         await self.hass.async_add_executor_job(self.coordinator.api.set_bass, self._zone_id, bass)
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_set_treble(self, treble: int) -> None:
         await self.hass.async_add_executor_job(self.coordinator.api.set_treble, self._zone_id, treble)
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh_zone(self._zone_id)

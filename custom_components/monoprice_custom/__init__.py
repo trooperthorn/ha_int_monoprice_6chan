@@ -2,31 +2,16 @@
 import logging
 from dataclasses import dataclass
 
-from pymonoprice import get_monoprice
 from serial import SerialException
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PORT, Platform
+from homeassistant.const import CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
-# MONOPRICE_OBJECT and UNDO_UPDATE_LISTENER were removed from .const
-from .const import (
-    CONF_NOT_FIRST_RUN,
-    DOMAIN,
-    FIRST_RUN,
-    PLATFORMS,
-)
+from .api import get_monoprice_extended
+from .const import CONF_NOT_FIRST_RUN, DOMAIN, FIRST_RUN, PLATFORMS
 from .coordinator import MonopriceCoordinator
-
-# Added SWITCH and REMOTE to support the new features
-PLATFORMS = [
-    Platform.MEDIA_PLAYER, 
-    Platform.SENSOR, 
-    Platform.NUMBER,
-    Platform.SWITCH,
-    Platform.REMOTE
-]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,14 +32,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: MonopriceConfigEntry) ->
 
     try:
         # Spin up the synchronous serial connection in the executor
-        monoprice = await hass.async_add_executor_job(get_monoprice, port)
+        monoprice = await hass.async_add_executor_job(get_monoprice_extended, port)
     except SerialException as err:
         _LOGGER.error("Error connecting to Monoprice controller at %s", port)
         raise ConfigEntryNotReady from err
 
     # Initialize the coordinator
-    coordinator = MonopriceCoordinator(hass, monoprice)
-    
+    coordinator = MonopriceCoordinator(hass, monoprice, entry)
+
     # Fetch initial state before loading platforms so entities don't boot as "Unavailable"
     await coordinator.async_config_entry_first_refresh()
 
