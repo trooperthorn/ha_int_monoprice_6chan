@@ -8,20 +8,24 @@
 ## How To:
 ### <a href="https://github.com/hacs/integration">HACS</a>
 * Open HACS->Integrations->3 Dots->Custom repositories
-* Add this repository url: https://github.com/thebradleysanders/Monoprice-6-Zone-Home-Controller
+* Add this repository url: https://github.com/trooperthorn/ha_int_monoprice_6chan
 * Click on the newly added Monoprice 6-Zone Home Audio Controller
 * Click Download this repository with HACS
 * Restart Home Assistant
 * Go to Settings->Integrations->Add->Monoprice 6-Zone Amplifier Custom
-* Configure using your serial port & source names
+* Select the serial interface, verify the amplifier, then configure source names and target baud
 
 ### Manual
-* Add the monoprice folder to your /config/custom_components folder
+* Add the monoprice_custom folder to your /config/custom_components folder
 * Restart Home Assistant
 * Go to Settings->Integrations->Add->Monoprice 6-Zone Amplifier Custom
-* Configure using your serial port & source names
+* Select the serial interface, verify the amplifier, then configure source names and target baud
 
-<b>Note:</b> If the core integration is already configured, disable it before adding this custom one.
+<b>Legacy-domain migration:</b> Releases through 2026.08.20 used the same
+<code>monoprice</code> domain as Home Assistant Core. Disable the existing
+entry, restart Home Assistant, and add this integration as
+<code>monoprice_custom</code>. Remove the legacy entry only after the new entry
+has been verified. Never enable both entries against the same serial port.
 
 
 ## Additional Features

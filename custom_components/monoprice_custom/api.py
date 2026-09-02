@@ -8,6 +8,7 @@ This module subclasses ``pymonoprice.Monoprice`` to add those, reusing its
 ``_lock``/``_process_request`` machinery so every write - polling included -
 goes through the same serialized path instead of racing raw port access.
 """
+
 from __future__ import annotations
 
 import logging
@@ -15,15 +16,9 @@ from threading import RLock
 
 from pymonoprice import Monoprice, synchronized
 
+from .serial import SUPPORTED_BAUD_RATES
+
 _LOGGER = logging.getLogger(__name__)
-
-# Baud rates the amplifier firmware accepts via the `<BAUD\r` command.
-# These are fixed enumerated tokens, not a free-form value: the amp firmware
-# only recognizes an exact match against one of these six strings.
-SUPPORTED_BAUD_RATES = (9600, 19200, 38400, 57600, 115200, 230400)
-
-# Default baud rate the amp always reverts to on power loss.
-POWER_ON_BAUD_RATE = 9600
 
 
 def _format_set_pa(zone: int, pa: bool) -> bytes:
@@ -35,23 +30,54 @@ def _format_set_dnd(zone: int, dnd: bool) -> bytes:
 
 
 def _format_rename_source(index: int, name: str) -> bytes:
-    return "{}<{:8}\r".format(index, name[:8]).encode("ascii")
+    return f"{index}<{name[:8]:8}\r".encode("ascii")
 
 
 def _format_set_keypad_message(name: str) -> bytes:
-    return "M<{:8}\r".format(name[:8]).encode("ascii")
+    return f"M<{name[:8]:8}\r".encode("ascii")
 
 
 def _format_set_baud_rate(baud: int) -> bytes:
-    return "<{}\r".format(baud).encode()
+    return f"<{baud}\r".encode()
 
 
 def _format_zone_field_status(zone: int, field: str) -> bytes:
-    return "?{}{}\r".format(zone, field).encode()
+    return f"?{zone}{field}\r".encode()
 
 
 class MonopriceExtended(Monoprice):
     """Monoprice client extended with PA/DND/rename/baud commands."""
+
+    @synchronized
+    def wake(self) -> None:
+        """Send the documented wake sequence without awaiting a reply."""
+        self._send_request(b"\r\n")
+
+    @synchronized
+    def close(self) -> None:
+        """Close the owned serial interface."""
+        if not self._port.closed:
+            self._port.close()
+
+    @property
+    def current_baud_rate(self) -> int:
+        """Return the local serial interface's current baud rate."""
+        return int(self._port.baudrate)
+
+    @synchronized
+    def probe_baud_rate(self, baud: int) -> bool:
+        """Set the local rate and verify Zone 11 without changing the amplifier."""
+        if baud not in SUPPORTED_BAUD_RATES:
+            raise ValueError(f"Unsupported baud rate: {baud}")
+        self._port.baudrate = baud
+        self._port.reset_input_buffer()
+        self._port.reset_output_buffer()
+        self._send_request(b"\r\n")
+        try:
+            status = self.zone_status(11)
+        except Exception:  # noqa: BLE001 - a failed probe is a bounded state
+            return False
+        return status is not None and status.zone == 11
 
     @synchronized
     def set_pa(self, zone: int, pa: bool) -> None:
@@ -111,10 +137,9 @@ class MonopriceExtended(Monoprice):
         if baud == original_baud:
             return True
 
-        try:
-            self._process_request(_format_set_baud_rate(baud))
-        except Exception as err:  # noqa: BLE001 - hardware I/O, log and fall through
-            _LOGGER.warning("Baud rate switch request failed: %s", err)
+        # The amplifier changes speed immediately and does not reply at the old
+        # rate. Waiting for a response here creates a guaranteed timeout.
+        self._send_request(_format_set_baud_rate(baud))
 
         self._port.baudrate = baud
         self._port.reset_input_buffer()

@@ -1,24 +1,26 @@
 """Support for raw RS232 string execution."""
+
 from __future__ import annotations
 
 import voluptuous as vol
-
 from homeassistant.components.remote import RemoteEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import SUPPORTED_BAUD_RATES
-from .const import ATTR_BAUD_RATE
 from .__init__ import MonopriceConfigEntry
+from .const import ATTR_BAUD_RATE, CONF_BAUD_RATE
 from .device import controller_device_info
+from .serial import SUPPORTED_BAUD_RATES
 
 SET_BAUD_RATE_SCHEMA = {vol.Required(ATTR_BAUD_RATE): vol.In(SUPPORTED_BAUD_RATES)}
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: MonopriceConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: MonopriceConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Monoprice remote platform."""
     coordinator = entry.runtime_data.coordinator
@@ -49,10 +51,15 @@ class MonopriceRemote(CoordinatorEntity, RemoteEntity):
     async def async_send_command(self, command: list[str], **kwargs) -> None:
         """Send raw RS232 commands to the device, serialized against polling."""
         for cmd in command:
-            await self.hass.async_add_executor_job(self.coordinator.api.send_raw, cmd)
+            await self.coordinator.gateway.async_execute("send_raw", cmd)
 
     async def async_set_baud_rate(self, baud_rate: int) -> None:
         """Negotiate the amplifier and local port to a new link speed."""
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.set_baud_rate, baud_rate
+        await self.coordinator.gateway.async_ensure_link(baud_rate)
+        self.hass.config_entries.async_update_entry(
+            self.coordinator.entry,
+            options={
+                **self.coordinator.entry.options,
+                CONF_BAUD_RATE: baud_rate,
+            },
         )

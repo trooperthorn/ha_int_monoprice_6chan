@@ -95,17 +95,25 @@ Every command documented in the Monoprice Multizone Controller RS-232 spec is re
 5. Go to **Settings** -> **Devices & Services** -> **Add Integration** and search for **Monoprice 6-Zone Amplifier Custom**.
 
 ### Option 2: Manual
-1. Copy the `monoprice` folder from this repository into your `/config/custom_components` directory.
+1. Copy the `monoprice_custom` folder from this repository into your `/config/custom_components` directory.
 2. Restart Home Assistant.
 3. Go to **Settings** -> **Devices & Services** -> **Add Integration** and search for **Monoprice 6-Zone Amplifier Custom**.
 
-> **Important Note:** If you are currently using the built-in "Core" Monoprice integration, you **must delete it** from your integrations list before configuring this custom version to prevent them from fighting over the serial port.
+> **Legacy-domain migration:** Releases through `2026.08.20` registered as
+> `monoprice`, the same immutable domain as Home Assistant Core. There is no
+> safe automatic way to distinguish and take over those entries. Disable the
+> existing `monoprice` entry first, restart Home Assistant, then add this
+> integration as `monoprice_custom`. Delete the legacy entry only after the
+> new entry and automations have been verified. Never leave both entries
+> enabled against the same serial interface.
 
 ---
 
 ## 🔌 Configuration Best Practices
 
-When configuring the integration, you will be asked to select your Serial Port. 
+Configuration is deliberately staged: select a serial interface, explicitly
+verify the amplifier on that interface, then choose source names and the target
+baud rate. Merely rendering the selector does not open or probe any port.
 
 If you are using a multi-port USB-to-Serial adapter (like a 4-port FTDI cable), **always select the path starting with `/dev/serial/by-id/...`**. 
 Linux frequently reassigns basic `/dev/ttyUSB0` paths when your server reboots. Using the `by-id` path guarantees the integration will always find the amplifier, even if you move the USB cable to a different port on your host machine.
@@ -147,20 +155,29 @@ If you move the amplifier to a different USB/serial port, use **Settings → Dev
 
 ## 🩺 Troubleshooting
 
-*   **"Cannot connect" during setup:** the config flow's port dropdown labels ports as `(Monoprice Amp Detected)`, `(In Use by <domain>)`, or `(Available)` based on a live probe — pick a `(Monoprice Amp Detected)` entry if one is listed.
+*   **"Cannot connect" during verification:** confirm that no other integration or process owns the selected interface. Only the submitted interface is opened, and the verifier closes it before setup continues.
+*   **"Not a Monoprice amplifier" during verification:** the interface opened successfully but did not return a structurally valid Zone 11 response at a supported baud rate.
 *   **Entities go `Unavailable` intermittently:** usually a baud-rate mismatch on a long/noisy cable run — lower the target link speed in **Configure**.
-*   **A zone never appears:** the integration only creates entities for zones it detects on Units 1-3 during startup discovery; zones added after startup need a Home Assistant restart or config entry reload.
-*   For deeper diagnosis, download the integration's **Diagnostics** file from the device page — it includes per-zone raw status and the coordinator's last poll result.
+*   **An expansion unit is unavailable:** discovery retries after recovery and every five minutes. A newly detected unit is added dynamically; an existing unit that returns becomes available again without a restart.
+*   For deeper diagnosis, download the integration's **Diagnostics** file from the device page. It reports redacted entry data, connection state, current/target baud, active units, poll timing, and failure/reconnect counters; arbitrary raw serial content is not included.
 
 ---
 
 ## 🧪 Testing
 
-`tests/test_api.py` covers the RS-232 command framing in `api.py` (pure functions, no Home Assistant or hardware required):
+The test suite covers wire framing, validation/identity, baud switching,
+gateway serialization and shutdown, config/reconfigure ownership, coordinator
+recovery, expansion rediscovery, and failed-initial-refresh cleanup:
 
 ```
-pip install pymonoprice pyserial
-python -m unittest discover -s tests -v
+pip install \
+  "homeassistant==2026.8.3" \
+  "pymonoprice==0.6.1" \
+  pytest pytest-asyncio pytest-homeassistant-custom-component ruff mypy
+ruff check custom_components tests
+mypy --ignore-missing-imports --follow-imports=skip --allow-untyped-decorators custom_components/monoprice_custom
+pytest -v
 ```
 
-Entity/coordinator/config-flow behavior isn't covered yet — that needs `pytest-homeassistant-custom-component` wired up as a follow-up.
+These tests use fakes and do not qualify a physical amplifier, clone, adapter,
+or RS-232 cable. Live qualification remains a separate release activity.

@@ -10,7 +10,7 @@ blueprint:
           entity:
             filter:
               - domain: media_player
-                integration: monoprice
+                integration: monoprice_custom
     trigger_event:
       name: Trigger Sensor (e.g., Doorbell)
       selector:
@@ -30,7 +30,7 @@ trigger:
 
 action:
   # 1. Save state
-  - action: monoprice.snapshot
+  - action: monoprice_custom.snapshot
     target: !input target_zones
 
   # 2. Prep zones for announcement
@@ -53,5 +53,5 @@ action:
       seconds: 5
 
   # 4. Restore original state
-  - action: monoprice.restore
+  - action: monoprice_custom.restore
     target: !input target_zones

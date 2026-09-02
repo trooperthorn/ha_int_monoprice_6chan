@@ -1,11 +1,12 @@
 """Support for Monoprice 6-Zone Amplifier EQ controls via number entities."""
+
 from __future__ import annotations
 
 import logging
 from typing import Any
 
 from homeassistant.components.number import NumberEntity, NumberMode
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -30,22 +31,30 @@ async def async_setup_entry(
     """Set up Monoprice number entities from a config entry."""
     coordinator = entry.runtime_data.coordinator
 
-    entities = []
-    # Loop ONLY over detected units
-    for unit in coordinator.active_units:
-        for j in range(1, 7):
-            zone_id = (unit * 10) + j
-            for control_type in ("Balance", "Bass", "Treble"):
-                entities.append(
-                    MonopriceZoneNumber(
-                        coordinator,
-                        entry.entry_id,
-                        zone_id,
-                        control_type,
-                    )
-                )
+    known_units: set[int] = set()
 
-    async_add_entities(entities)
+    def _add_units(units: set[int]) -> None:
+        entities: list[MonopriceZoneNumber] = []
+        for unit in sorted(units):
+            for zone in range(1, 7):
+                zone_id = unit * 10 + zone
+                entities.extend(
+                    MonopriceZoneNumber(
+                        coordinator, entry.entry_id, zone_id, control_type
+                    )
+                    for control_type in ("Balance", "Bass", "Treble")
+                )
+        if entities:
+            async_add_entities(entities)
+            known_units.update(units)
+
+    _add_units(set(coordinator.active_units))
+
+    @callback
+    def _async_add_discovered_units() -> None:
+        _add_units(set(coordinator.active_units) - known_units)
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_discovered_units))
 
 
 class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
@@ -90,10 +99,13 @@ class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
     @property
     def entity_registry_enabled_default(self) -> bool:
         """Return if the entity should be enabled when first added to the entity registry."""
-        if self._zone_id in (10, 20, 30):
-            return False
-        return self._zone_id < 20 or (
-            self.coordinator.data is not None and self._zone_id in self.coordinator.data
+        return self._zone_id not in (10, 20, 30)
+
+    @property
+    def available(self) -> bool:
+        """Return availability for this control's currently detected unit."""
+        return (
+            super().available and self._zone_id // 10 in self.coordinator.active_units
         )
 
     @property
@@ -121,18 +133,18 @@ class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
         """Translate the display value back to wire units and send it."""
         if self._control_type == "Balance":
             wire_value = int(value) + 10
-            await self.hass.async_add_executor_job(
-                self.coordinator.api.set_balance, self._zone_id, wire_value
+            await self.coordinator.gateway.async_execute(
+                "set_balance", self._zone_id, wire_value
             )
         elif self._control_type == "Bass":
             wire_value = int(value) + EQ_WIRE_OFFSET
-            await self.hass.async_add_executor_job(
-                self.coordinator.api.set_bass, self._zone_id, wire_value
+            await self.coordinator.gateway.async_execute(
+                "set_bass", self._zone_id, wire_value
             )
         elif self._control_type == "Treble":
             wire_value = int(value) + EQ_WIRE_OFFSET
-            await self.hass.async_add_executor_job(
-                self.coordinator.api.set_treble, self._zone_id, wire_value
+            await self.coordinator.gateway.async_execute(
+                "set_treble", self._zone_id, wire_value
             )
 
         await self.coordinator.async_refresh_zone(self._zone_id)

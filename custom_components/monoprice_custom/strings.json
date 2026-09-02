@@ -2,37 +2,56 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to the device",
+        "title": "Select serial interface",
         "data": {
-          "port": "[%key:common::config_flow::data::port%]",
+          "port": "[%key:common::config_flow::data::port%]"
+        }
+      },
+      "verify": {
+        "title": "Verify Monoprice amplifier",
+        "description": "Verify the Monoprice amplifier connected to {port}. The selected interface will be opened briefly and closed after verification."
+      },
+      "options": {
+        "title": "Configure amplifier",
+        "data": {
           "source_1": "Name of source #1",
           "source_2": "Name of source #2",
           "source_3": "Name of source #3",
           "source_4": "Name of source #4",
           "source_5": "Name of source #5",
-          "source_6": "Name of source #6"
+          "source_6": "Name of source #6",
+          "baud_rate": "Target link speed (baud)"
         }
       },
       "reconfigure": {
-        "title": "Reconfigure the device",
+        "title": "Select serial interface",
         "data": {
-          "port": "[%key:common::config_flow::data::port%]",
-          "source_1": "[%key:component::monoprice::config::step::user::data::source_1%]",
-          "source_2": "[%key:component::monoprice::config::step::user::data::source_2%]",
-          "source_3": "[%key:component::monoprice::config::step::user::data::source_3%]",
-          "source_4": "[%key:component::monoprice::config::step::user::data::source_4%]",
-          "source_5": "[%key:component::monoprice::config::step::user::data::source_5%]",
-          "source_6": "[%key:component::monoprice::config::step::user::data::source_6%]"
+          "port": "[%key:common::config_flow::data::port%]"
+        }
+      },
+      "reconfigure_options": {
+        "title": "Configure amplifier",
+        "data": {
+          "source_1": "[%key:component::monoprice_custom::config::step::options::data::source_1%]",
+          "source_2": "[%key:component::monoprice_custom::config::step::options::data::source_2%]",
+          "source_3": "[%key:component::monoprice_custom::config::step::options::data::source_3%]",
+          "source_4": "[%key:component::monoprice_custom::config::step::options::data::source_4%]",
+          "source_5": "[%key:component::monoprice_custom::config::step::options::data::source_5%]",
+          "source_6": "[%key:component::monoprice_custom::config::step::options::data::source_6%]",
+          "baud_rate": "[%key:component::monoprice_custom::config::step::options::data::baud_rate%]"
         }
       }
     },
     "error": {
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "not_monoprice": "The selected interface did not return a valid Monoprice amplifier response.",
+      "wrong_device": "The selected interface belongs to a different amplifier or serial adapter.",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
-      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "unknown": "The configuration flow could not continue."
     }
   },
   "options": {
@@ -40,13 +59,13 @@
       "init": {
         "title": "Configure sources",
         "data": {
-          "source_1": "[%key:component::monoprice::config::step::user::data::source_1%]",
-          "source_2": "[%key:component::monoprice::config::step::user::data::source_2%]",
-          "source_3": "[%key:component::monoprice::config::step::user::data::source_3%]",
-          "source_4": "[%key:component::monoprice::config::step::user::data::source_4%]",
-          "source_5": "[%key:component::monoprice::config::step::user::data::source_5%]",
-          "source_6": "[%key:component::monoprice::config::step::user::data::source_6%]",
-          "baud_rate": "Target link speed (baud)"
+          "source_1": "[%key:component::monoprice_custom::config::step::options::data::source_1%]",
+          "source_2": "[%key:component::monoprice_custom::config::step::options::data::source_2%]",
+          "source_3": "[%key:component::monoprice_custom::config::step::options::data::source_3%]",
+          "source_4": "[%key:component::monoprice_custom::config::step::options::data::source_4%]",
+          "source_5": "[%key:component::monoprice_custom::config::step::options::data::source_5%]",
+          "source_6": "[%key:component::monoprice_custom::config::step::options::data::source_6%]",
+          "baud_rate": "[%key:component::monoprice_custom::config::step::options::data::baud_rate%]"
         }
       }
     }

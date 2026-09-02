@@ -1,9 +1,9 @@
 name: Auto-Release Custom Component
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch: # Allows manual triggering from the Actions tab
+  workflow_run:
+    workflows: [Validate]
+    types: [completed]
 
 permissions:
   contents: write # Required to create tags and releases
@@ -16,6 +16,10 @@ concurrency:
 
 jobs:
   release:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Wait for inactivity
@@ -26,6 +30,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0 # Required to count previous tags for same-day runs
       
       - name: Generate version from date (with run counter)
@@ -51,12 +56,12 @@ jobs:
       - name: Zip integration
         run: |
           cd custom_components/monoprice_custom
-          zip -r ../../monoprice_6chan.zip .
+          zip -r ../../monoprice_custom.zip .
       
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.version.outputs.TAG }}" monoprice_6chan.zip \
+          gh release create "${{ steps.version.outputs.TAG }}" monoprice_custom.zip \
             --title "Monoprice 6-Zone Amplifier ${{ steps.version.outputs.TAG }}" \
-            --notes "Automatic release from latest commit: ${{ github.sha }}"
+            --notes "Automatic release from validated commit: ${{ github.event.workflow_run.head_sha }}"

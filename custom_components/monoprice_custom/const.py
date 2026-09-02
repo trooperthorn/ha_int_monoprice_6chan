@@ -1,8 +1,13 @@
 """Constants for the Monoprice 6-Zone Amplifier Media Player component."""
+
 from homeassistant.const import Platform
 
-DOMAIN = "monoprice"
+DOMAIN = "monoprice_custom"
 CONF_PORT = "port"
+CONF_DEVICE_IDENTITY = "device_identity"
+CONF_IDENTITY_KIND = "identity_kind"
+CONF_LAST_KNOWN_BAUD = "last_known_baud"
+CONF_KNOWN_UNITS = "known_units"
 
 PLATFORMS = [
     Platform.MEDIA_PLAYER,
@@ -25,7 +30,7 @@ CONF_BAUD_RATE = "baud_rate"
 
 # Compatibility strings for media_player.py imports
 CONF_NAME = "name"
-MONOPRICE_OBJECT = "monoprice"
+MONOPRICE_OBJECT = "monoprice_custom"
 UNDO_UPDATE_LISTENER = "undo_update_listener"
 
 # Integration lifecycle tracking

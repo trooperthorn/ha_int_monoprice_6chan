@@ -1,191 +1,165 @@
 """Coordinator for the Monoprice 6-Zone Amplifier integration."""
+
 from __future__ import annotations
 
-from datetime import timedelta
 import logging
+from datetime import UTC, datetime, timedelta
+from time import monotonic
 
-from serial import SerialException, SerialTimeoutException
-
+import serialx
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from pymonoprice import ZoneStatus
 
-from .api import POWER_ON_BAUD_RATE, SUPPORTED_BAUD_RATES, MonopriceExtended
-from .const import CONF_BAUD_RATE
+from .const import CONF_BAUD_RATE, CONF_LAST_KNOWN_BAUD
+from .gateway import MonopriceGateway
+from .serial import POWER_ON_BAUD_RATE, SUPPORTED_BAUD_RATES
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_TARGET_BAUD = 38400
+DEFAULT_TARGET_BAUD = POWER_ON_BAUD_RATE
 UPDATE_INTERVAL = timedelta(seconds=5)
+EXPANSION_DISCOVERY_INTERVAL = timedelta(minutes=5)
+_COMMUNICATION_ERRORS = (serialx.SerialException, TimeoutError, OSError)
 
 
-class MonopriceCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching Monoprice data asynchronously."""
+class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
+    """Manage polling, recovery, and expansion-unit discovery."""
 
     def __init__(
         self,
         hass: HomeAssistant,
-        api: MonopriceExtended,
+        gateway: MonopriceGateway,
         entry: ConfigEntry,
     ) -> None:
-        """Initialize."""
-        self.api = api
+        """Initialize the coordinator."""
+        self.gateway = gateway
         self.entry = entry
-
         self.active_units: list[int] = []
-        self._baud_optimized = False
+        self.last_successful_poll: datetime | None = None
+        self.last_poll_duration: float | None = None
+        self._link_ready = False
+        self._next_expansion_discovery = 0.0
 
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name="Monoprice 6-Zone",
             update_interval=UPDATE_INTERVAL,
         )
 
     @property
     def target_baud_rate(self) -> int:
-        """Baud rate to negotiate up to, configurable via the options flow."""
+        """Return the configured target link speed."""
         configured = self.entry.options.get(CONF_BAUD_RATE, DEFAULT_TARGET_BAUD)
-        return configured if configured in SUPPORTED_BAUD_RATES else DEFAULT_TARGET_BAUD
+        return (
+            int(configured)
+            if int(configured) in SUPPORTED_BAUD_RATES
+            else DEFAULT_TARGET_BAUD
+        )
+
+    async def _async_ensure_link(self) -> None:
+        """Run bounded recovery and target-baud negotiation when required."""
+        if self._link_ready:
+            return
+        previous_baud = self.gateway.last_known_baud
+        detected_baud = await self.gateway.async_ensure_link(self.target_baud_rate)
+        self._link_ready = True
+        self._next_expansion_discovery = 0.0
+
+        if (
+            detected_baud != previous_baud
+            or self.entry.data.get(CONF_LAST_KNOWN_BAUD) != detected_baud
+        ):
+            self.hass.config_entries.async_update_entry(
+                self.entry,
+                data={**self.entry.data, CONF_LAST_KNOWN_BAUD: detected_baud},
+            )
 
     async def _async_discover_active_units(self) -> None:
-        """One-time discovery of which expansion units are physically present."""
+        """Rediscover expansion units at startup, after recovery, and periodically."""
         active = [1]
-        try:
-            if _LOGGER.isEnabledFor(logging.DEBUG):
-                _LOGGER.debug("Probing for expansion Unit 2 (Zone 21)...")
-            status_u2 = await self.hass.async_add_executor_job(self.api.zone_status, 21)
-            if status_u2:
-                active.append(2)
+        for unit in (2, 3):
+            if unit == 3 and 2 not in active:
+                break
+            try:
+                status = await self.gateway.async_zone_status(unit * 10 + 1)
+            except _COMMUNICATION_ERRORS:
+                break
+            if status is None:
+                break
+            active.append(unit)
 
-                if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug("Probing for expansion Unit 3 (Zone 31)...")
-                status_u3 = await self.hass.async_add_executor_job(self.api.zone_status, 31)
-                if status_u3:
-                    active.append(3)
-        except Exception:
-            pass
-        self.active_units = active
-
-        if _LOGGER.isEnabledFor(logging.DEBUG):
-            _LOGGER.debug("Active units locked to: %s", self.active_units)
+        if active != self.active_units:
+            _LOGGER.info("Detected Monoprice amplifier units: %s", active)
+            self.active_units = active
+        self._next_expansion_discovery = (
+            monotonic() + EXPANSION_DISCOVERY_INTERVAL.total_seconds()
+        )
 
     async def async_refresh_zone(self, zone_id: int) -> None:
-        """Refresh a single zone's status and publish it immediately.
-
-        Used after issuing a set-command so the entity that triggered it
-        reflects the new state without waiting on the next full poll cycle
-        (or on every other zone being re-polled first).
-        """
+        """Refresh one zone and publish it immediately."""
         try:
-            status = await self.hass.async_add_executor_job(self.api.zone_status, zone_id)
-        except (SerialException, SerialTimeoutException):
+            status = await self.gateway.async_zone_status(zone_id)
+        except _COMMUNICATION_ERRORS:
+            self._link_ready = False
             await self.async_request_refresh()
             return
 
         if status is None:
             return
-
         new_data = dict(self.data or {})
         new_data[zone_id] = status
         self.async_set_updated_data(new_data)
 
-    async def _async_update_data(self):
-        """Fetch data from the amp via executor job."""
+    async def _async_update_data(self) -> dict[int, ZoneStatus]:
+        """Fetch all known zones through the single gateway."""
+        started = monotonic()
         try:
-            if not self._baud_optimized:
-                await self.hass.async_add_executor_job(self._async_optimize_baud_rate_sync)
-                self._baud_optimized = True
-
-            if not self.active_units:
+            await self._async_ensure_link()
+            if monotonic() >= self._next_expansion_discovery:
                 await self._async_discover_active_units()
 
-            # Wake-up ping
-            try:
-                if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug("Sending wake-up ping to amplifier.")
-                await self.hass.async_add_executor_job(self.api._port.write, b"\r\n")
-            except Exception as e:
-                if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug("Wake-up ping failed (expected if locked): %s", e)
-
-            zones = {}
-
+            await self.gateway.async_wake()
+            zones: dict[int, ZoneStatus] = {}
             for unit in self.active_units:
-                for j in range(1, 7):
-                    zone_id = (unit * 10) + j
-
-                    if _LOGGER.isEnabledFor(logging.DEBUG):
-                        _LOGGER.debug("Requesting status for Zone %s", zone_id)
-
+                for zone_id in range(unit * 10 + 1, unit * 10 + 7):
                     try:
-                        zone_status = await self.hass.async_add_executor_job(
-                            self.api.zone_status, zone_id
+                        status = await self.gateway.async_zone_status(zone_id)
+                    except _COMMUNICATION_ERRORS:
+                        if unit == 1:
+                            raise
+                        _LOGGER.debug(
+                            "Expansion unit %d stopped responding during polling", unit
                         )
+                        self._next_expansion_discovery = 0.0
+                        break
+                    if status is not None:
+                        zones[zone_id] = status
 
-                        if zone_status:
-                            if _LOGGER.isEnabledFor(logging.DEBUG):
-                                _LOGGER.debug(
-                                    "Zone %s Response: Power=%s, Volume=%s, Source=%s",
-                                    zone_id, zone_status.power, zone_status.volume, zone_status.source
-                                )
-                            zones[zone_id] = zone_status
-
-                    except Exception as loop_err:
-                        if "Connection timed out" in str(loop_err):
-                            if _LOGGER.isEnabledFor(logging.DEBUG):
-                                _LOGGER.debug("Timeout requesting Zone %s (Unit %s may not exist)", zone_id, unit)
-                            if unit > 1:
-                                pass  # Ignore timeouts for secondary units
-                            else:
-                                raise loop_err
-                        else:
-                            raise loop_err
-
-                # Poll Master Zone for unit (10, 20, 30)
                 try:
-                    master_id = unit * 10
-                    master_status = await self.hass.async_add_executor_job(
-                        self.api.zone_status, master_id
-                    )
-                    if master_status:
-                        zones[master_id] = master_status
-                except Exception:
-                    pass
+                    master_status = await self.gateway.async_zone_status(unit * 10)
+                except _COMMUNICATION_ERRORS:
+                    if unit == 1:
+                        raise
+                else:
+                    if master_status is not None:
+                        zones[unit * 10] = master_status
 
+            self.last_successful_poll = datetime.now(UTC)
             return zones
-
-        except (SerialException, SerialTimeoutException) as err:
-            self._baud_optimized = False
+        except _COMMUNICATION_ERRORS as err:
+            self._link_ready = False
+            self._next_expansion_discovery = 0.0
             _LOGGER.warning(
-                "Monoprice communication error (%s). Connection state reset; re-negotiating baud rate on next poll.",
+                "Monoprice communication failed; bounded recovery will run on the "
+                "next poll: %s",
                 err,
             )
-            raise UpdateFailed(f"Error communicating with API: {err}")
+            raise UpdateFailed(f"Error communicating with amplifier: {err}") from err
         except Exception as err:
-            raise UpdateFailed(f"Error communicating with API: {err}")
-
-    def _async_optimize_baud_rate_sync(self) -> None:
-        """Synchronous wrapper so the whole negotiation runs in one executor job."""
-        target = self.target_baud_rate
-        current = self.api._port.baudrate
-
-        if current == target:
-            return
-
-        try:
-            self.api.zone_status(11)
-        except Exception:
-            self.api._port.baudrate = POWER_ON_BAUD_RATE
-            self.api._port.reset_input_buffer()
-            self.api._port.reset_output_buffer()
-            current = POWER_ON_BAUD_RATE
-
-        if current == target:
-            return
-
-        if target != POWER_ON_BAUD_RATE:
-            _LOGGER.info(
-                "Negotiating Monoprice amplifier link speed up to %d baud", target
-            )
-            self.api.set_baud_rate(target)
+            raise UpdateFailed(f"Error communicating with amplifier: {err}") from err
+        finally:
+            self.last_poll_duration = monotonic() - started

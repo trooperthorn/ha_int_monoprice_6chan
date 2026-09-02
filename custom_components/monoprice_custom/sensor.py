@@ -1,11 +1,12 @@
 """Support for Monoprice 6-Zone Amplifier sensors."""
+
 from __future__ import annotations
 
 import logging
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -27,14 +28,25 @@ async def async_setup_entry(
     """Set up Monoprice sensor entities from a config entry."""
     coordinator = entry.runtime_data.coordinator
 
-    entities = []
-    # Loop ONLY over dynamically detected active units
-    for unit in coordinator.active_units:
-        for j in range(1, 7):
-            zone_id = (unit * 10) + j
-            entities.append(MonopriceKeypadSensor(coordinator, entry.entry_id, zone_id))
+    known_units: set[int] = set()
 
-    async_add_entities(entities)
+    def _add_units(units: set[int]) -> None:
+        entities = [
+            MonopriceKeypadSensor(coordinator, entry.entry_id, unit * 10 + zone)
+            for unit in sorted(units)
+            for zone in range(1, 7)
+        ]
+        if entities:
+            async_add_entities(entities)
+            known_units.update(units)
+
+    _add_units(set(coordinator.active_units))
+
+    @callback
+    def _async_add_discovered_units() -> None:
+        _add_units(set(coordinator.active_units) - known_units)
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_discovered_units))
 
 
 class MonopriceKeypadSensor(CoordinatorEntity, SensorEntity):
@@ -58,6 +70,13 @@ class MonopriceKeypadSensor(CoordinatorEntity, SensorEntity):
     def entity_registry_enabled_default(self) -> bool:
         """Enable by default."""
         return True
+
+    @property
+    def available(self) -> bool:
+        """Return availability for this sensor's currently detected unit."""
+        return (
+            super().available and self._zone_id // 10 in self.coordinator.active_units
+        )
 
     @property
     def native_value(self) -> str | None:

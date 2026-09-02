@@ -1,11 +1,12 @@
 """Support for Monoprice 6-Zone Amplifier switches."""
+
 from __future__ import annotations
 
 import logging
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -23,20 +24,41 @@ async def async_setup_entry(
     """Set up Monoprice switch entities."""
     coordinator = entry.runtime_data.coordinator
 
-    entities = []
-    for unit in coordinator.active_units:
-        master_id = unit * 10
-        # Add Unit Master PA and DND switches
-        entities.append(MonopricePASwitch(coordinator, entry.entry_id, master_id, is_master=True))
-        entities.append(MonopriceDNDSwitch(coordinator, entry.entry_id, master_id, is_master=True))
+    known_units: set[int] = set()
 
-        # Add individual zone switches
-        for j in range(1, 7):
-            zone_id = (unit * 10) + j
-            entities.append(MonopricePASwitch(coordinator, entry.entry_id, zone_id))
-            entities.append(MonopriceDNDSwitch(coordinator, entry.entry_id, zone_id))
+    def _add_units(units: set[int]) -> None:
+        entities: list[MonopricePASwitch | MonopriceDNDSwitch] = []
+        for unit in sorted(units):
+            master_id = unit * 10
+            entities.extend(
+                (
+                    MonopricePASwitch(
+                        coordinator, entry.entry_id, master_id, is_master=True
+                    ),
+                    MonopriceDNDSwitch(
+                        coordinator, entry.entry_id, master_id, is_master=True
+                    ),
+                )
+            )
+            for zone in range(1, 7):
+                zone_id = unit * 10 + zone
+                entities.extend(
+                    (
+                        MonopricePASwitch(coordinator, entry.entry_id, zone_id),
+                        MonopriceDNDSwitch(coordinator, entry.entry_id, zone_id),
+                    )
+                )
+        if entities:
+            async_add_entities(entities)
+            known_units.update(units)
 
-    async_add_entities(entities)
+    _add_units(set(coordinator.active_units))
+
+    @callback
+    def _async_add_discovered_units() -> None:
+        _add_units(set(coordinator.active_units) - known_units)
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_discovered_units))
 
 
 class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
@@ -44,7 +66,9 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, entry_id: str, zone_id: int, is_master: bool = False) -> None:
+    def __init__(
+        self, coordinator, entry_id: str, zone_id: int, is_master: bool = False
+    ) -> None:
         """Initialize PA switch."""
         super().__init__(coordinator)
         self._zone_id = zone_id
@@ -62,6 +86,13 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
         return True
 
     @property
+    def available(self) -> bool:
+        """Return availability for this switch's currently detected unit."""
+        return (
+            super().available and self._zone_id // 10 in self.coordinator.active_units
+        )
+
+    @property
     def is_on(self) -> bool | None:
         """Return True if PA is active."""
         if not self.coordinator.data or self._zone_id not in self.coordinator.data:
@@ -70,16 +101,12 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn PA on."""
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.set_pa, self._zone_id, True
-        )
+        await self.coordinator.gateway.async_execute("set_pa", self._zone_id, True)
         await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn PA off."""
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.set_pa, self._zone_id, False
-        )
+        await self.coordinator.gateway.async_execute("set_pa", self._zone_id, False)
         await self.coordinator.async_refresh_zone(self._zone_id)
 
 
@@ -88,7 +115,9 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, entry_id: str, zone_id: int, is_master: bool = False) -> None:
+    def __init__(
+        self, coordinator, entry_id: str, zone_id: int, is_master: bool = False
+    ) -> None:
         """Initialize DND switch."""
         super().__init__(coordinator)
         self._zone_id = zone_id
@@ -105,6 +134,13 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
         return True
 
     @property
+    def available(self) -> bool:
+        """Return availability for this switch's currently detected unit."""
+        return (
+            super().available and self._zone_id // 10 in self.coordinator.active_units
+        )
+
+    @property
     def is_on(self) -> bool | None:
         """Return True if DND is active."""
         if not self.coordinator.data or self._zone_id not in self.coordinator.data:
@@ -113,14 +149,10 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn DND on."""
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.set_dnd, self._zone_id, True
-        )
+        await self.coordinator.gateway.async_execute("set_dnd", self._zone_id, True)
         await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn DND off."""
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.set_dnd, self._zone_id, False
-        )
+        await self.coordinator.gateway.async_execute("set_dnd", self._zone_id, False)
         await self.coordinator.async_refresh_zone(self._zone_id)

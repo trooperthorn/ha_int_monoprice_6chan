@@ -9,7 +9,7 @@ blueprint:
         entity:
           filter:
             - domain: media_player
-              integration: monoprice
+              integration: monoprice_custom
     occupancy_sensor:
       name: Presence/Motion Sensor (Optional)
       default: []

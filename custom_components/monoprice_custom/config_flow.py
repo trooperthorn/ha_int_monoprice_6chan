@@ -1,23 +1,26 @@
-"""Config flow for Monoprice 6-Zone Amplifier integration."""
+"""Config flow for the Monoprice 6-Zone Amplifier integration."""
+
 from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, override
 
-from pymonoprice import get_monoprice
-import serial
-from serial import SerialException
-import serial.tools.list_ports
 import voluptuous as vol
-
-from homeassistant import config_entries, core, exceptions
+from homeassistant import config_entries
+from homeassistant.components import usb
+from homeassistant.components.usb import USBDevice
+from homeassistant.config_entries import ConfigEntry, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_PORT
-from homeassistant.helpers import selector
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.selector import SerialPortSelector
 
-from .api import SUPPORTED_BAUD_RATES
 from .const import (
     CONF_BAUD_RATE,
+    CONF_DEVICE_IDENTITY,
+    CONF_IDENTITY_KIND,
+    CONF_LAST_KNOWN_BAUD,
     CONF_SOURCE_1,
     CONF_SOURCE_2,
     CONF_SOURCE_3,
@@ -27,237 +30,344 @@ from .const import (
     CONF_SOURCES,
     DOMAIN,
 )
+from .serial import (
+    POWER_ON_BAUD_RATE,
+    SUPPORTED_BAUD_RATES,
+    CannotOpenPort,
+    EndpointIdentity,
+    NotMonopriceDevice,
+    ValidationResult,
+    canonicalize_endpoint,
+    endpoint_identity,
+    validate_monoprice_endpoint,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-SOURCES = [
+SOURCES = (
     CONF_SOURCE_1,
     CONF_SOURCE_2,
     CONF_SOURCE_3,
     CONF_SOURCE_4,
     CONF_SOURCE_5,
     CONF_SOURCE_6,
-]
-
-OPTIONS_FOR_DATA = {vol.Optional(source): str for source in SOURCES}
+)
 
 
-def _resolve_path(path: str) -> str:
-    """Resolve symlinks like /dev/serial/by-id/... to /dev/ttyUSBx."""
-    try:
-        return os.path.realpath(path)
-    except Exception:
-        return path
+@dataclass(frozen=True, slots=True)
+class PreparedEndpoint:
+    """A verified endpoint and the identity used by the config entry."""
+
+    port: str
+    identity: EndpointIdentity
+    detected_baud: int
 
 
-def _find_dev_paths(obj: Any) -> set[str]:
-    """Recursively search a data structure for any device paths starting with /dev/."""
-    found = set()
-    if isinstance(obj, dict):
-        for val in obj.values():
-            found.update(_find_dev_paths(val))
-    elif isinstance(obj, (list, tuple, set)):
-        for item in obj:
-            found.update(_find_dev_paths(item))
-    elif isinstance(obj, str):
-        if obj.startswith("/dev/"):
-            found.add(obj)
-            found.add(_resolve_path(obj))
-    return found
-
-
-@core.callback
+@callback
 def _sources_from_config(data: dict[str, Any]) -> dict[str, str]:
-    sources_config = {
-        str(idx + 1): data.get(source) for idx, source in enumerate(SOURCES)
-    }
-
+    """Convert the six optional form fields into the stored source mapping."""
     return {
-        index: name.strip()
-        for index, name in sources_config.items()
-        if (name is not None and name.strip() != "")
+        str(index): name.strip()
+        for index, source in enumerate(SOURCES, start=1)
+        if (name := data.get(source)) is not None and name.strip()
     }
 
 
-async def validate_input(hass: core.HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input allows us to connect."""
+def _source_form_key(
+    source: str, index: int, previous_sources: dict[str, Any]
+) -> vol.Optional:
+    """Return an optional source field with its prior value suggested."""
+    if str(index) in previous_sources:
+        return vol.Optional(
+            source,
+            description={"suggested_value": previous_sources[str(index)]},
+        )
+    return vol.Optional(source)
+
+
+def _options_schema(
+    sources: dict[str, Any] | None = None,
+    target_baud: int = POWER_ON_BAUD_RATE,
+) -> vol.Schema:
+    """Build the shared sources and target-baud form schema."""
+    previous_sources = sources or {}
+    fields: dict[Any, Any] = {
+        _source_form_key(source, index, previous_sources): str
+        for index, source in enumerate(SOURCES, start=1)
+    }
+    fields[vol.Required(CONF_BAUD_RATE, default=target_baud)] = vol.In(
+        SUPPORTED_BAUD_RATES
+    )
+    return vol.Schema(fields)
+
+
+def _same_local_device(first: str, second: str) -> bool:
+    """Compare local device aliases without rewriting serial URLs."""
+    if first == second:
+        return True
+    if "://" in first or "://" in second:
+        return False
+    return os.path.realpath(first) == os.path.realpath(second)
+
+
+async def _async_adapter_identity(
+    hass: HomeAssistant, canonical_port: str
+) -> EndpointIdentity:
+    """Prefer immutable USB adapter metadata for the verified endpoint."""
     try:
-        await hass.async_add_executor_job(get_monoprice, data[CONF_PORT])
-    except SerialException as err:
-        _LOGGER.error("Error connecting to Monoprice controller %s", data[CONF_PORT])
-        raise CannotConnect from err
+        devices = await usb.async_scan_serial_ports(hass)
+    except Exception:  # pragma: no cover - platform USB enumeration is best effort
+        _LOGGER.debug("Unable to enumerate USB metadata", exc_info=True)
+        return endpoint_identity(canonical_port)
 
-    sources = _sources_from_config(data)
-    return {CONF_PORT: data[CONF_PORT], CONF_SOURCES: sources}
+    for device in devices:
+        if (
+            isinstance(device, USBDevice)
+            and device.device
+            and _same_local_device(device.device, canonical_port)
+        ):
+            return endpoint_identity(
+                canonical_port,
+                vid=device.vid,
+                pid=device.pid,
+                serial_number=device.serial_number,
+                interface_num=device.interface_num,
+            )
+    return endpoint_identity(canonical_port)
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Monoprice 6-Zone Amplifier."""
+async def _async_live_validation(entry: ConfigEntry) -> ValidationResult | None:
+    """Validate an unchanged endpoint through its already-owned live client."""
+    runtime_data = getattr(entry, "runtime_data", None)
+    coordinator = getattr(runtime_data, "coordinator", None)
+    gateway = getattr(coordinator, "gateway", None)
+    if gateway is None:
+        return None
 
-    VERSION = 1
+    status = await gateway.async_zone_status(11)
+    if status is None or status.zone != 11:
+        raise NotMonopriceDevice(entry.data[CONF_PORT])
+    detected_baud = gateway.current_baud_rate
+    return ValidationResult(detected_baud=detected_baud)
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None):
-        """Handle the initial step."""
-        errors = {}
 
+async def async_prepare_endpoint(
+    hass: HomeAssistant,
+    submitted_port: str,
+    reconfigure_entry: ConfigEntry | None = None,
+) -> PreparedEndpoint:
+    """Canonicalize, verify, and identify exactly one submitted endpoint."""
+    canonical_port = canonicalize_endpoint(submitted_port)
+    validation: ValidationResult | None = None
+
+    if reconfigure_entry is not None and _same_local_device(
+        canonical_port, reconfigure_entry.data[CONF_PORT]
+    ):
+        validation = await _async_live_validation(reconfigure_entry)
+
+    if validation is None:
+        validation = await hass.async_add_executor_job(
+            validate_monoprice_endpoint, canonical_port
+        )
+
+    if (
+        reconfigure_entry is not None
+        and reconfigure_entry.data.get(CONF_IDENTITY_KIND) == "canonical_endpoint"
+    ):
+        identity = endpoint_identity(canonical_port)
+    else:
+        identity = await _async_adapter_identity(hass, canonical_port)
+    return PreparedEndpoint(canonical_port, identity, validation.detected_baud)
+
+
+class MonopriceConfigFlow(  # type: ignore[call-arg]
+    config_entries.ConfigFlow, domain=DOMAIN
+):
+    """Handle the Monoprice configuration and reconfiguration flows."""
+
+    VERSION = 2
+
+    def __init__(self) -> None:
+        """Initialize transient flow state."""
+        self._submitted_port: str | None = None
+        self._prepared: PreparedEndpoint | None = None
+        self._reconfigure_entry: ConfigEntry | None = None
+
+    @override
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Select an interface without opening or writing to any device."""
         if user_input is not None:
-            try:
-                info = await validate_input(self.hass, user_input)
-                if self.source == config_entries.SOURCE_RECONFIGURE:
-                    reconfigure_entry = self._get_reconfigure_entry()
-                    return self.async_update_reload_and_abort(
-                        reconfigure_entry, data=info
-                    )
-                return self.async_create_entry(title=user_input[CONF_PORT], data=info)
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except Exception:
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-
-        # 1. Map all active HA integration entries to device paths they consume
-        ha_configured_ports: dict[str, str] = {}
-        for entry in self.hass.config_entries.async_entries():
-            dev_paths = _find_dev_paths(entry.data) | _find_dev_paths(entry.options)
-            for path in dev_paths:
-                # Store domain (e.g. 'zwave_js', 'zha', 'elkm1')
-                ha_configured_ports[path] = entry.domain
-
-        # 2. Smart Hardware Probe (Direct RS232 Protocol Check)
-        def _get_port_status(port):
-            device_path = port.device
-            resolved_path = _resolve_path(device_path)
-            
-            status_label = "(Available)"
-
-            # Skip hardware probe if Home Assistant already claimed this port
-            if device_path in ha_configured_ports or resolved_path in ha_configured_ports:
-                using_domain = ha_configured_ports.get(device_path) or ha_configured_ports.get(resolved_path)
-                status_label = f"(In Use by {using_domain})"
-            else:
-                # Raw RS232 Probe: Fast, direct, and buffer-safe
-                try:
-                    with serial.Serial(device_path, 9600, timeout=1.0) as ser:
-                        # Flush any stale data out of the hardware buffers
-                        ser.reset_input_buffer()
-                        ser.reset_output_buffer()
-
-                        # Send wake-up byte and clear any resulting echo
-                        ser.write(b"\r\n")
-                        ser.flush()
-                        ser.reset_input_buffer()
-
-                        # Send Zone 11 inquiry command (?11\r) per Monoprice RS232 manual
-                        ser.write(b"?11\r")
-                        ser.flush()
-
-                        # Read up to 30 bytes from the port
-                        response = ser.read(30)
-
-                        # Monoprice amplifiers always reply with ">11..." or ">10..."
-                        if b">11" in response or b">10" in response or b">" in response:
-                            status_label = "(Monoprice Amp Detected) 🎯"
-                        else:
-                            status_label = "(Available)"
-
-                except (SerialException, PermissionError, OSError):
-                    # Port is locked by another OS process or container
-                    status_label = "(In Use by OS)"
-                except Exception:
-                    status_label = "(Available)"
-
-            label = f"{device_path} - {port.description}" if port.description and port.description != "n/a" else device_path
-            
-            return {
-                "value": device_path,
-                "label": f"{status_label} {label}",
-            }
-
-        # 3. Offload scanning and probing to the executor
-        ports = await self.hass.async_add_executor_job(serial.tools.list_ports.comports)
-        port_options = await self.hass.async_add_executor_job(
-            lambda: [_get_port_status(p) for p in ports]
-        )
-
-        # Build schema using the dynamic dropdown
-        data_schema = vol.Schema(
-            {
-                vol.Required(CONF_PORT): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=port_options,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        custom_value=True,
-                    )
-                ),
-                **OPTIONS_FOR_DATA,
-            }
-        )
+            self._submitted_port = user_input[CONF_PORT]
+            return await self.async_step_verify()
 
         return self.async_show_form(
-            step_id="user", data_schema=data_schema, errors=errors
+            step_id="user",
+            data_schema=vol.Schema({vol.Required(CONF_PORT): SerialPortSelector()}),
         )
 
+    @override
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
-    ):
-        """Handle a reconfiguration request (changed cable/port)."""
-        return await self.async_step_user(user_input)
+    ) -> ConfigFlowResult:
+        """Select a replacement interface while preserving entry ownership."""
+        self._reconfigure_entry = self._get_reconfigure_entry()
+        if user_input is not None:
+            self._submitted_port = user_input[CONF_PORT]
+            return await self.async_step_verify()
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_PORT,
+                        default=self._reconfigure_entry.data[CONF_PORT],
+                    ): SerialPortSelector()
+                }
+            ),
+        )
+
+    async def async_step_verify(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Explicitly confirm and verify only the submitted interface."""
+        if self._submitted_port is None:
+            return self.async_abort(reason="unknown")
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                self._prepared = await async_prepare_endpoint(
+                    self.hass,
+                    self._submitted_port,
+                    self._reconfigure_entry,
+                )
+            except CannotOpenPort:
+                errors["base"] = "cannot_connect"
+            except NotMonopriceDevice:
+                errors["base"] = "not_monoprice"
+            except Exception:  # pragma: no cover - HA displays the safe fallback
+                _LOGGER.exception("Unexpected exception verifying Monoprice endpoint")
+                errors["base"] = "unknown"
+            else:
+                if self._reconfigure_entry is None:
+                    await self.async_set_unique_id(self._prepared.identity.key)
+                    self._abort_if_unique_id_configured()
+                    return await self.async_step_options()
+
+                if (
+                    self._reconfigure_entry.unique_id is not None
+                    and self._reconfigure_entry.unique_id != self._prepared.identity.key
+                ):
+                    errors["base"] = "wrong_device"
+                else:
+                    return await self.async_step_reconfigure_options()
+
+        return self.async_show_form(
+            step_id="verify",
+            data_schema=vol.Schema({}),
+            errors=errors,
+            description_placeholders={"port": self._submitted_port},
+        )
+
+    async def async_step_options(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure source names and target baud before entry creation."""
+        if self._prepared is None:
+            return self.async_abort(reason="unknown")
+
+        if user_input is not None:
+            form_data = dict(user_input)
+            target_baud = int(form_data.pop(CONF_BAUD_RATE))
+            return self.async_create_entry(
+                title=self._prepared.port,
+                data={
+                    CONF_PORT: self._prepared.port,
+                    CONF_DEVICE_IDENTITY: self._prepared.identity.key,
+                    CONF_IDENTITY_KIND: self._prepared.identity.kind,
+                    CONF_LAST_KNOWN_BAUD: self._prepared.detected_baud,
+                },
+                options={
+                    CONF_SOURCES: _sources_from_config(form_data),
+                    CONF_BAUD_RATE: target_baud,
+                },
+            )
+
+        return self.async_show_form(
+            step_id="options",
+            data_schema=_options_schema(target_baud=self._prepared.detected_baud),
+        )
+
+    async def async_step_reconfigure_options(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Update a verified endpoint without discarding unrelated state."""
+        if self._prepared is None or self._reconfigure_entry is None:
+            return self.async_abort(reason="unknown")
+
+        if user_input is not None:
+            form_data = dict(user_input)
+            target_baud = int(form_data.pop(CONF_BAUD_RATE))
+            options = {
+                **self._reconfigure_entry.options,
+                CONF_SOURCES: _sources_from_config(form_data),
+                CONF_BAUD_RATE: target_baud,
+            }
+            return self.async_update_and_abort(
+                self._reconfigure_entry,
+                data_updates={
+                    CONF_PORT: self._prepared.port,
+                    CONF_DEVICE_IDENTITY: self._prepared.identity.key,
+                    CONF_IDENTITY_KIND: self._prepared.identity.kind,
+                    CONF_LAST_KNOWN_BAUD: self._prepared.detected_baud,
+                },
+                options=options,
+            )
+
+        sources = self._reconfigure_entry.options.get(CONF_SOURCES, {})
+        target_baud = self._reconfigure_entry.options.get(
+            CONF_BAUD_RATE, self._prepared.detected_baud
+        )
+        return self.async_show_form(
+            step_id="reconfigure_options",
+            data_schema=_options_schema(sources, target_baud),
+        )
 
     @staticmethod
-    @core.callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> MonopriceOptionsFlowHandler:
-        """Define the config flow to handle options."""
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Return the options flow handler."""
         return MonopriceOptionsFlowHandler()
 
 
-@core.callback
-def _key_for_source(index: int, source: str, previous_sources: dict[str, Any]) -> vol.Optional:
-    if str(index) in previous_sources:
-        key = vol.Optional(
-            source, description={"suggested_value": previous_sources[str(index)]}
-        )
-    else:
-        key = vol.Optional(source)
-    return key
-
-
 class MonopriceOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle a Monoprice options flow."""
+    """Handle source-name and target-baud options."""
 
-    @core.callback
-    def _previous_sources(self) -> dict[str, Any]:
-        if CONF_SOURCES in self.config_entry.options:
-            previous = self.config_entry.options[CONF_SOURCES]
-        else:
-            previous = self.config_entry.data[CONF_SOURCES]
-        return previous
-
-    async def async_step_init(self, user_input: dict[str, Any] | None = None):
-        """Manage the options."""
+    @override
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage options while preserving unrelated option keys."""
         if user_input is not None:
-            baud_rate = user_input.pop(CONF_BAUD_RATE, None)
-            data = {CONF_SOURCES: _sources_from_config(user_input)}
-            if baud_rate is not None:
-                data[CONF_BAUD_RATE] = int(baud_rate)
-            return self.async_create_entry(title="", data=data)
+            form_data = dict(user_input)
+            target_baud = int(form_data.pop(CONF_BAUD_RATE))
+            return self.async_create_entry(
+                title="",
+                data={
+                    **self.config_entry.options,
+                    CONF_SOURCES: _sources_from_config(form_data),
+                    CONF_BAUD_RATE: target_baud,
+                },
+            )
 
-        previous_sources = self._previous_sources()
-        current_baud = self.config_entry.options.get(CONF_BAUD_RATE, SUPPORTED_BAUD_RATES[0])
-        options = {
-            _key_for_source(idx + 1, source, previous_sources): str
-            for idx, source in enumerate(SOURCES)
-        }
-        options[
-            vol.Optional(CONF_BAUD_RATE, default=current_baud)
-        ] = vol.In(SUPPORTED_BAUD_RATES)
-
+        sources = self.config_entry.options.get(
+            CONF_SOURCES, self.config_entry.data.get(CONF_SOURCES, {})
+        )
+        target_baud = self.config_entry.options.get(CONF_BAUD_RATE, POWER_ON_BAUD_RATE)
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(options),
+            data_schema=_options_schema(sources, target_baud),
         )
-
-
-class CannotConnect(exceptions.HomeAssistantError):
-    """Error to indicate we cannot connect."""
