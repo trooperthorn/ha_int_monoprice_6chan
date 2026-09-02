@@ -27,15 +27,18 @@ async def test_late_expansion_adds_entities_without_precreating_all_units(hass) 
     entry.runtime_data = SimpleNamespace(coordinator=coordinator)
     add_entities = Mock()
 
-    await async_setup_entry(hass, entry, add_entities)
+    try:
+        await async_setup_entry(hass, entry, add_entities)
 
-    assert len(add_entities.call_args_list) == 1
-    assert len(add_entities.call_args_list[0].args[0]) == 18
+        assert len(add_entities.call_args_list) == 1
+        assert len(add_entities.call_args_list[0].args[0]) == 18
 
-    coordinator.active_units = [1, 2]
-    coordinator.async_set_updated_data({})
-    assert len(add_entities.call_args_list) == 2
-    assert len(add_entities.call_args_list[1].args[0]) == 18
+        coordinator.active_units = [1, 2]
+        coordinator.async_set_updated_data({})
+        assert len(add_entities.call_args_list) == 2
+        assert len(add_entities.call_args_list[1].args[0]) == 18
 
-    coordinator.async_set_updated_data({})
-    assert len(add_entities.call_args_list) == 2
+        coordinator.async_set_updated_data({})
+        assert len(add_entities.call_args_list) == 2
+    finally:
+        await coordinator.async_shutdown()
