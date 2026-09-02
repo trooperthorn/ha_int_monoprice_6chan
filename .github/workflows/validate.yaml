@@ -31,7 +31,9 @@ jobs:
         run: |
           pip install \
             "homeassistant==2026.8.3" \
+            "aiousbwatcher==1.1.2" \
             "pymonoprice==0.6.1" \
+            "serialx==1.8.2" \
             mypy \
             pytest \
             pytest-asyncio \
