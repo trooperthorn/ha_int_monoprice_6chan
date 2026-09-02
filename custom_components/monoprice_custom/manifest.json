@@ -10,5 +10,5 @@
   "integration_type": "hub",
   "loggers": ["pymonoprice"],
   "requirements": ["pymonoprice==0.6.1"],
-  "version": "2026.08.20"
+  "version": "2026.09.01.1"
 }
