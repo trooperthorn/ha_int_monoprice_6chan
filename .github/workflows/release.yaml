@@ -1,67 +1,185 @@
-name: Auto-Release Custom Component
+# Reconciles main into a complete, verifiable GitHub Release. A push to main
+# (i.e. a merged PR) is the release trigger: nobody bumps manifest.json or
+# tags a release by hand, the version is resolved automatically from git tag
+# history by scripts/build_release_artifacts.py. Reruns are safe; an
+# already-published version is left immutable.
+name: Release
 
 on:
-  workflow_run:
-    workflows: [Validate]
-    types: [completed]
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
 
 permissions:
-  contents: write # Required to create tags and releases
-
-# This concurrency block creates the 10-minute debounce.
-# Any new push will cancel the currently running/sleeping workflow and start fresh.
-concurrency:
-  group: "release-${{ github.ref }}"
-  cancel-in-progress: true
+  contents: read
 
 jobs:
-  release:
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wait for inactivity
-        run: |
-          echo "Waiting 10 minutes to ensure no further updates are pushed..."
-          sleep 600
+  # Use the same authoritative checks that gate pull requests. The publishing
+  # job cannot begin until hassfest, HACS validation, and the test suite pass.
+  tests:
+    uses: ./.github/workflows/validate.yaml
+    permissions:
+      contents: read
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  release:
+    if: github.ref == 'refs/heads/main'
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out the exact main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 0 # Required to count previous tags for same-day runs
-      
-      - name: Generate version from date (with run counter)
+          fetch-depth: 0
+
+      - name: Resolve and validate the release version
         id: version
-        run: |
-          git fetch --tags --force
-          CALVER=$(date +'%Y.%m.%d')
-          
-          # Count how many tags already exist today
-          TAG_COUNT=$(git tag -l "v${CALVER}*" | wc -l | xargs)
-          
-          # Force the count to be at least two digits (00, 01... 09, 10)
-          PADDED_COUNT=$(printf "%02d" $TAG_COUNT)
-          VERSION="${CALVER}.${PADDED_COUNT}"
-          
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "TAG=v$VERSION" >> $GITHUB_OUTPUT
-      
-      - name: Update manifest.json
-        run: |
-          jq ".version = \"${{ steps.version.outputs.VERSION }}\"" custom_components/monoprice_custom/manifest.json > tmp.json && mv tmp.json custom_components/monoprice_custom/manifest.json
-      
-      - name: Zip integration
-        run: |
-          cd custom_components/monoprice_custom
-          zip -r ../../monoprice_custom.zip .
-      
-      - name: Create Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          gh release create "${{ steps.version.outputs.TAG }}" monoprice_custom.zip \
-            --title "Monoprice 6-Zone Amplifier ${{ steps.version.outputs.TAG }}" \
-            --notes "Automatic release from validated commit: ${{ github.event.workflow_run.head_sha }}"
+          set -euo pipefail
+          VERSION="$(python3 - <<'PY'
+          from pathlib import Path
+          from scripts.build_release_artifacts import resolve_version
+          print(resolve_version(Path.cwd()))
+          PY
+          )"
+          TAG="v${VERSION}"
+          printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$TAG" >> "$GITHUB_OUTPUT"
+
+          RELEASE_DRAFT="$(gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json isDraft \
+            --jq .isDraft 2>/dev/null || true)"
+          if [ "$RELEASE_DRAFT" = "false" ]; then
+            echo "Published release $TAG already exists; no asset will be replaced."
+            printf 'publish=false\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$RELEASE_DRAFT" = "true" ]; then
+            echo "Resuming incomplete draft release $TAG."
+          fi
+
+          if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
+            TAG_COMMIT="$(git rev-list -n 1 "$TAG")"
+            if [ "$TAG_COMMIT" != "$GITHUB_SHA" ]; then
+              echo "::error::Tag $TAG already points to $TAG_COMMIT, not $GITHUB_SHA"
+              exit 1
+            fi
+          fi
+          printf 'publish=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Build deterministic HACS archive
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          python3 scripts/build_release_artifacts.py \
+            --version "${{ steps.version.outputs.version }}" \
+            --output dist/monoprice_custom.zip
+
+      # Pinned to the immutable commit behind anchore/sbom-action v0.24.2.
+      # GitHub's attestation guidance names this action as its SBOM generator.
+      - name: Generate SPDX SBOM
+        if: steps.version.outputs.publish == 'true'
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          file: dist/monoprice_custom.zip
+          format: spdx-json
+          output-file: dist/monoprice_custom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
+
+      - name: Generate release checksums
+        if: steps.version.outputs.publish == 'true'
+        working-directory: dist
+        run: sha256sum monoprice_custom.zip monoprice_custom.spdx.json > SHA256SUMS
+
+      # Pinned to the immutable commit behind actions/attest v4.
+      - name: Attest build provenance
+        if: steps.version.outputs.publish == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/monoprice_custom.zip
+
+      - name: Attest the release SBOM
+        if: steps.version.outputs.publish == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/monoprice_custom.zip
+          sbom-path: dist/monoprice_custom.spdx.json
+
+      # Immutable releases lock their tag and assets at publication. GitHub's
+      # recommended sequence is therefore: draft, attach everything, publish.
+      # A failed run can safely resume and replace assets while still a draft.
+      - name: Stage immutable tag and draft release
+        if: steps.version.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
+            gh api --method POST \
+              "/repos/${GITHUB_REPOSITORY}/git/refs" \
+              --field "ref=refs/tags/$TAG" \
+              --field "sha=$GITHUB_SHA" >/dev/null
+          fi
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            IS_DRAFT="$(gh release view "$TAG" \
+              --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+            if [ "$IS_DRAFT" != "true" ]; then
+              echo "::error::Release $TAG was published during this run."
+              exit 1
+            fi
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Monoprice 6-Zone Amplifier $TAG" \
+              --generate-notes \
+              --verify-tag \
+              --draft
+          fi
+
+          gh release upload "$TAG" \
+            dist/monoprice_custom.zip \
+            dist/monoprice_custom.spdx.json \
+            dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      - name: Publish and lock the complete release
+        if: steps.version.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+
+      - name: Publish verification instructions
+        if: steps.version.outputs.publish == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          {
+            echo '### Release verification'
+            echo
+            echo "Published \`$TAG\` from \`$GITHUB_SHA\`."
+            echo
+            echo '```bash'
+            echo "gh release download $TAG -R $GITHUB_REPOSITORY -p monoprice_custom.zip -p SHA256SUMS"
+            echo 'sha256sum --check SHA256SUMS --ignore-missing'
+            echo "gh attestation verify monoprice_custom.zip -R $GITHUB_REPOSITORY"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
