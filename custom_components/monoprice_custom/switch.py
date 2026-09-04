@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .__init__ import MonopriceConfigEntry
-from .device import zone_device_info
+from .device import async_ensure_unit_devices, zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,16 +27,17 @@ async def async_setup_entry(
     known_units: set[int] = set()
 
     def _add_units(units: set[int]) -> None:
+        async_ensure_unit_devices(hass, entry.entry_id, units)
         entities: list[MonopricePASwitch | MonopriceDNDSwitch] = []
         for unit in sorted(units):
             master_id = unit * 10
             entities.extend(
                 (
                     MonopricePASwitch(
-                        coordinator, entry.entry_id, master_id, is_master=True
+                        hass, coordinator, entry.entry_id, master_id, is_master=True
                     ),
                     MonopriceDNDSwitch(
-                        coordinator, entry.entry_id, master_id, is_master=True
+                        hass, coordinator, entry.entry_id, master_id, is_master=True
                     ),
                 )
             )
@@ -44,8 +45,8 @@ async def async_setup_entry(
                 zone_id = unit * 10 + zone
                 entities.extend(
                     (
-                        MonopricePASwitch(coordinator, entry.entry_id, zone_id),
-                        MonopriceDNDSwitch(coordinator, entry.entry_id, zone_id),
+                        MonopricePASwitch(hass, coordinator, entry.entry_id, zone_id),
+                        MonopriceDNDSwitch(hass, coordinator, entry.entry_id, zone_id),
                     )
                 )
         if entities:
@@ -67,7 +68,12 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
     _attr_has_entity_name = True
 
     def __init__(
-        self, coordinator, entry_id: str, zone_id: int, is_master: bool = False
+        self,
+        hass: HomeAssistant,
+        coordinator,
+        entry_id: str,
+        zone_id: int,
+        is_master: bool = False,
     ) -> None:
         """Initialize PA switch."""
         super().__init__(coordinator)
@@ -78,7 +84,7 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
         self._attr_name = "PA" if is_master else "Public Address"
         self._attr_translation_key = "pa_switch"
         self._attr_unique_id = f"{entry_id}_{zone_id}_pa_switch"
-        self._attr_device_info = zone_device_info(entry_id, zone_id)
+        self._attr_device_info = zone_device_info(hass, entry_id, zone_id)
 
     @property
     def entity_registry_enabled_default(self) -> bool:
@@ -116,7 +122,12 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
     _attr_has_entity_name = True
 
     def __init__(
-        self, coordinator, entry_id: str, zone_id: int, is_master: bool = False
+        self,
+        hass: HomeAssistant,
+        coordinator,
+        entry_id: str,
+        zone_id: int,
+        is_master: bool = False,
     ) -> None:
         """Initialize DND switch."""
         super().__init__(coordinator)
@@ -126,7 +137,7 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_name = "Master DND" if is_master else "Do Not Disturb"
         self._attr_translation_key = "dnd_switch"
         self._attr_unique_id = f"{entry_id}_{zone_id}_dnd_switch"
-        self._attr_device_info = zone_device_info(entry_id, zone_id)
+        self._attr_device_info = zone_device_info(hass, entry_id, zone_id)
 
     @property
     def entity_registry_enabled_default(self) -> bool:

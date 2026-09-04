@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any, ClassVar
 
-import voluptuous as vol
 from homeassistant.components.media_player import (
     MediaPlayerDeviceClass,
     MediaPlayerEntity,
@@ -13,28 +12,16 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .__init__ import MonopriceConfigEntry
-from .const import ATTR_BALANCE, ATTR_BASS, ATTR_TREBLE, CONF_SOURCES
-from .device import zone_device_info
+from .const import CONF_SOURCES
+from .device import async_ensure_unit_devices, zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
 MAX_VOLUME = 38.0
-
-SET_BALANCE_SCHEMA = {
-    vol.Required(ATTR_BALANCE): vol.All(cv.positive_int, vol.Range(min=0, max=20))
-}
-SET_BASS_SCHEMA = {
-    vol.Required(ATTR_BASS): vol.All(cv.positive_int, vol.Range(min=0, max=14))
-}
-SET_TREBLE_SCHEMA = {
-    vol.Required(ATTR_TREBLE): vol.All(cv.positive_int, vol.Range(min=0, max=14))
-}
 
 
 @callback
@@ -61,13 +48,16 @@ async def async_setup_entry(
     known_units: set[int] = set()
 
     def _add_units(units: set[int]) -> None:
+        async_ensure_unit_devices(hass, entry.entry_id, units)
         entities = []
         for unit in sorted(units):
             entities.append(
-                MonopriceZone(coordinator, entry.entry_id, unit * 10, sources)
+                MonopriceZone(hass, coordinator, entry.entry_id, unit * 10, sources)
             )
             entities.extend(
-                MonopriceZone(coordinator, entry.entry_id, unit * 10 + zone, sources)
+                MonopriceZone(
+                    hass, coordinator, entry.entry_id, unit * 10 + zone, sources
+                )
                 for zone in range(1, 7)
             )
         if entities:
@@ -81,19 +71,6 @@ async def async_setup_entry(
         _add_units(set(coordinator.active_units) - known_units)
 
     entry.async_on_unload(coordinator.async_add_listener(_async_add_discovered_units))
-
-    platform = entity_platform.async_get_current_platform()
-    platform.async_register_entity_service("snapshot", {}, "async_snapshot")
-    platform.async_register_entity_service("restore", {}, "async_restore")
-    platform.async_register_entity_service(
-        "set_balance", SET_BALANCE_SCHEMA, "async_set_balance"
-    )
-    platform.async_register_entity_service(
-        "set_bass", SET_BASS_SCHEMA, "async_set_bass"
-    )
-    platform.async_register_entity_service(
-        "set_treble", SET_TREBLE_SCHEMA, "async_set_treble"
-    )
 
 
 class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
@@ -109,6 +86,7 @@ class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
 
     def __init__(
         self,
+        hass: HomeAssistant,
         coordinator,
         entry_id: str,
         zone_id: int,
@@ -118,7 +96,7 @@ class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
         self._zone_id = zone_id
         self._source_id_name, self._source_name_id, self._attr_source_list = sources
         self._attr_unique_id = f"{entry_id}_{self._zone_id}"
-        self._attr_device_info = zone_device_info(entry_id, self._zone_id)
+        self._attr_device_info = zone_device_info(hass, entry_id, self._zone_id)
         self._attr_supported_features = (
             MediaPlayerEntityFeature.VOLUME_MUTE
             | MediaPlayerEntityFeature.VOLUME_SET

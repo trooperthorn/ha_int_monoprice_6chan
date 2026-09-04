@@ -137,8 +137,7 @@ class MonopriceExtended(Monoprice):
         if baud == original_baud:
             return True
 
-        # The amplifier changes speed immediately and does not reply at the old
-        # rate. Waiting for a response here creates a guaranteed timeout.
+        # Does not reply at the old rate after this; see docs/protocol.md.
         self._send_request(_format_set_baud_rate(baud))
 
         self._port.baudrate = baud

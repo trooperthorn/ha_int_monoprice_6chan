@@ -1,89 +1,134 @@
-"""Build deterministic release artifacts for the Monoprice HACS integration.
+#!/usr/bin/env python3
+"""Validate shipped versions and build the deterministic HACS release archive.
 
-The release version is resolved automatically from git tag history (CalVer
-with a same-day sequence counter), so nobody has to bump
-custom_components/monoprice_custom/manifest.json by hand before merging.
-Used by .github/workflows/release.yaml.
+Reads ``.release.json`` through ``scripts.release_config``. ``validate_versions``
+is the independent reader the release gate relies on; the writer is
+``set_version.py``. Stable ordering, timestamps, permissions, and compression
+make the same source tree produce the same SHA-256 digest on every runner.
+
+Usage:
+    python -m scripts.build_release_artifacts --validate-only
+    python -m scripts.build_release_artifacts --output dist/monoprice_custom.zip
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-import re
-import subprocess
+import stat
+import sys
 import zipfile
-from datetime import UTC, datetime
 from pathlib import Path
 
-DOMAIN = "monoprice_custom"
-COMPONENT_DIR = Path("custom_components") / DOMAIN
-TAG_PATTERN = re.compile(r"^v(?P<date>\d{4}\.\d{2}\.\d{2})\.(?P<seq>\d+)$")
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts import release_config
+from scripts.release_config import ReleaseConfig, load
+
+_FIXED_ZIP_TIME = (1980, 1, 1, 0, 0, 0)
+_SKIP_PARTS = {"__pycache__", "node_modules"}
 
 
-def resolve_version(repo_root: Path, *, today: datetime | None = None) -> str:
-    """Return the next CalVer version (YYYY.MM.DD.NN) for today.
+def _config(target: Path | ReleaseConfig) -> ReleaseConfig:
+    return target if isinstance(target, ReleaseConfig) else load(Path(target))
 
-    Reads existing `v{date}.{seq}` tags and picks one past the highest
-    sequence already used today, so reruns and same-day releases never
-    collide. Matches only the full `v{date}.{seq}` shape, unlike the prior
-    `git tag -l "v${CALVER}*"` glob this replaces, which also matched
-    differently-suffixed and un-suffixed tags and produced duplicate or
-    malformed sequence numbers under concurrent runs (e.g. v2026.08.13.99
-    and v2026.08.20.000 alongside v2026.08.20.01).
-    """
-    date = (today or datetime.now(UTC)).strftime("%Y.%m.%d")
-    result = subprocess.run(
-        ["git", "tag", "-l", f"v{date}.*"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=True,
+
+def validate_versions(target: Path | ReleaseConfig) -> str:
+    """Return the single shipped version or raise on drift or bad format."""
+    return release_config.validate_versions(_config(target))
+
+
+def _release_files(source: Path) -> list[Path]:
+    return sorted(
+        (
+            path
+            for path in source.rglob("*")
+            if path.is_file()
+            and not _SKIP_PARTS.intersection(path.relative_to(source).parts)
+            and path.suffix not in {".pyc", ".pyo"}
+        ),
+        key=lambda path: path.relative_to(source).as_posix(),
     )
-    highest_seq = -1
-    for tag in result.stdout.splitlines():
-        match = TAG_PATTERN.match(tag.strip())
-        if match and match.group("date") == date:
-            highest_seq = max(highest_seq, int(match.group("seq")))
-    return f"{date}.{highest_seq + 1:02d}"
 
 
-def build_archive(repo_root: Path, version: str, output: Path) -> Path:
-    """Zip the integration's component directory with `version` stamped in.
+def _archive_label(source: Path) -> str:
+    """Return the integration's display name, falling back to the directory."""
+    manifest = source / "manifest.json"
+    if manifest.exists():
+        name = json.loads(manifest.read_text(encoding="utf-8")).get("name")
+        if isinstance(name, str) and name.isascii():
+            return name
+    return source.name
 
-    Deterministic: files are added in sorted order and manifest.json is
-    rewritten with the resolved version, so the same inputs always produce
-    the same archive contents.
-    """
-    component_dir = repo_root / COMPONENT_DIR
-    manifest_path = component_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["version"] = version
 
+def build_archive(target: Path | ReleaseConfig, output: Path) -> tuple[str, str]:
+    """Write the archive and return ``(version, sha256)``."""
+    config = _config(target)
+    version = validate_versions(config)
+    if not config.archive_source:
+        raise ValueError(".release.json has no archive section")
+    source = config.repository / config.archive_source
+    files = _release_files(source)
+    if not files or source / "manifest.json" not in files:
+        raise ValueError("Release source is empty or missing manifest.json")
     output.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(component_dir.rglob("*")):
-            if path.is_dir():
-                continue
-            arcname = path.relative_to(component_dir).as_posix()
-            if path == manifest_path:
-                archive.writestr(arcname, json.dumps(manifest, indent=2) + "\n")
-            else:
-                archive.write(path, arcname)
-    return output
+    with zipfile.ZipFile(
+        output,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+        strict_timestamps=True,
+    ) as archive:
+        archive.comment = f"{_archive_label(source)} {version}".encode("ascii")
+        for path in files:
+            relative = path.relative_to(source).as_posix()
+            info = zipfile.ZipInfo(relative, date_time=_FIXED_ZIP_TIME)
+            info.create_system = 3
+            executable = bool(path.stat().st_mode & stat.S_IXUSR)
+            info.external_attr = (0o100755 if executable else 0o100644) << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.flag_bits |= 0x800  # UTF-8 file names
+            archive.writestr(info, path.read_bytes(), compresslevel=9)
+    return version, hashlib.sha256(output.read_bytes()).hexdigest()
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+def main() -> int:
+    parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--version", required=True, help="Version to stamp into manifest.json"
+        "--repository",
+        type=Path,
+        default=Path(__file__).resolve().parents[1],
+        help="repository root (defaults to this script's repository)",
     )
     parser.add_argument(
-        "--output", required=True, type=Path, help="Path to write the zip archive"
+        "--output",
+        type=Path,
+        default=None,
+        help="archive path; defaults to dist/<archive name>",
+    )
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="print the shipped version and exit",
     )
     args = parser.parse_args()
-    build_archive(Path.cwd(), args.version, args.output)
+    config = load(args.repository)
+    if args.validate_only:
+        print(validate_versions(config))
+        return 0
+    output = args.output or (
+        config.repository / "dist" / (config.archive_name or "release.zip")
+    )
+    if not output.is_absolute():
+        output = config.repository / output
+    version, digest = build_archive(config, output)
+    print(f"archive={output}")
+    print(f"version={version}")
+    print(f"sha256={digest}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
