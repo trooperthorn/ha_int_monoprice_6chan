@@ -22,13 +22,6 @@ Older tags keep their names; the reader simply ignores them when counting.
 The zip is the fixed subject for the SBOM and provenance attestation and is built from
 the same tree. Rejected: dropping the archive, which would leave nothing to attest.
 
-## 2026-09-03, community pull requests are left for owner review
-
-Two open PRs from outside contributors (config-flow options fix, pymonoprice reconnect on
-`socket://` bridges) predate this pass. They were not merged or closed here because the
-reconnect change overlaps the coordinator's own error handling and needs the owner's
-hardware judgment.
-
 ## Recorded, devices are modeled controller, unit, zone through `via_device_id`
 
 See `design.md`. Rejected: the retired `via_device` identifier shim, which core removed,
