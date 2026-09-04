@@ -8,6 +8,8 @@
 
 A high-performance, completely rewritten Custom Integration for the Monoprice 6-Zone Amplifier (and compatible clones). This expands massively on the core Home Assistant integration by introducing high-speed serial communication, dynamic hardware discovery, and complete control over EQ, Public Address (PA), and Do Not Disturb (DND) modes.
 
+See [docs/README.md](docs/README.md) for design rationale, protocol notes, and release/security controls.
+
 ## ✨ USB Serial Configuration
 ![Control UI Screenshots](https://github.com/trooperthorn/ha_int_monoprice_6chan/blob/main/Screenshots/usb-config.png?raw=true)
 
@@ -137,27 +139,27 @@ This integration exposes custom services for advanced automation workflows:
 
 ## 🚦 Baud Rate & Latency
 
-The amplifier always powers on at 9600 baud. On first poll after startup the integration negotiates up to a faster **target link speed**, configurable from **Settings → Devices & Services → Monoprice → Configure** (defaults to 9600 unless changed). A higher rate lowers per-command latency but is more sensitive to long or noisy RS-232 runs — if you see intermittent timeouts after raising it, step back down one notch. The amp reverts to 9600 baud on every power cycle, so the integration re-negotiates automatically whenever a connection error is detected.
+The amplifier always powers on at 9600 baud. On first poll after startup the integration negotiates up to a faster **target link speed**, configurable from **Settings → Devices & Services → Monoprice → Configure** (defaults to 9600 unless changed). A higher rate lowers per-command latency but is more sensitive to long or noisy RS-232 runs, if you see intermittent timeouts after raising it, step back down one notch. The amp reverts to 9600 baud on every power cycle, so the integration re-negotiates automatically whenever a connection error is detected.
 
 ---
 
 ## 🔁 Reconfiguring
 
-If you move the amplifier to a different USB/serial port, use **Settings → Devices & Services → Monoprice → Reconfigure** instead of removing and re-adding the integration — it keeps your existing entities, automations, and history intact.
+If you move the amplifier to a different USB/serial port, use **Settings → Devices & Services → Monoprice → Reconfigure** instead of removing and re-adding the integration, it keeps your existing entities, automations, and history intact.
 
 ---
 
 ## ⚠️ Known Limitations
 
 *   The amplifier's Public Address input is a fixed hardware pin (not a `media_player.play_media` target); to page a zone, route your announcement device's audio into the amp's PA input and toggle the `Public Address` switch.
-*   The `Sound Mode` dropdown on each zone media player is a convenience preset that just sets the zone's Bass value — it isn't a hardware DSP mode, and it will move the Bass number entity's slider when used.
+*   The `Sound Mode` dropdown on each zone media player is a convenience preset that just sets the zone's Bass value, it isn't a hardware DSP mode, and it will move the Bass number entity's slider when used.
 *   Source names/keypad messages are limited to 8 ASCII characters by the hardware; longer input is silently truncated.
 
 ## 🩺 Troubleshooting
 
 *   **"Cannot connect" during verification:** confirm that no other integration or process owns the selected interface. Only the submitted interface is opened, and the verifier closes it before setup continues.
 *   **"Not a Monoprice amplifier" during verification:** the interface opened successfully but did not return a structurally valid Zone 11 response at a supported baud rate.
-*   **Entities go `Unavailable` intermittently:** usually a baud-rate mismatch on a long/noisy cable run — lower the target link speed in **Configure**.
+*   **Entities go `Unavailable` intermittently:** usually a baud-rate mismatch on a long/noisy cable run, lower the target link speed in **Configure**.
 *   **An expansion unit is unavailable:** discovery retries after recovery and every five minutes. A newly detected unit is added dynamically; an existing unit that returns becomes available again without a restart.
 *   For deeper diagnosis, download the integration's **Diagnostics** file from the device page. It reports redacted entry data, connection state, current/target baud, active units, poll timing, and failure/reconnect counters; arbitrary raw serial content is not included.
 

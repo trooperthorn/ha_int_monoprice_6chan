@@ -1,0 +1,9 @@
+{
+  "tag_prefix": "v",
+  "timezone": "America/Chicago",
+  "archive": {"source": "custom_components/monoprice_custom", "name": "monoprice_custom.zip"},
+  "release_paths": ["custom_components/monoprice_custom"],
+  "version_fields": [
+    {"path": "custom_components/monoprice_custom/manifest.json", "kind": "json", "key": "version"}
+  ]
+}

@@ -1,95 +1,103 @@
-"""Tests for scripts/build_release_artifacts.py (release automation)."""
+"""Tests for the release scripts: version validation, writing, and the archive."""
 
 from __future__ import annotations
 
 import json
-import subprocess
+import stat
 import sys
 import zipfile
-from datetime import UTC, datetime
+from datetime import date
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
-from scripts.build_release_artifacts import build_archive, resolve_version
+from scripts.build_release_artifacts import (
+    build_archive,
+    validate_versions,
+)
+from scripts.set_version import next_calver, parse_calver, set_version
+
+EXPECTED_VERSION = json.loads(
+    (ROOT / "custom_components/monoprice_custom/manifest.json").read_text(encoding="utf-8")
+)["version"]
 
 
-def _init_repo_with_tags(tmp_path: Path, tags: list[str]) -> Path:
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True
+def _repo(tmp_path: Path, version: str = "2026.09.02.2") -> Path:
+    repository = tmp_path / "repository"
+    component = repository / "custom_components" / "monoprice_custom"
+    component.mkdir(parents=True)
+    (repository / ".release.json").write_text(
+        (ROOT / ".release.json").read_text(encoding="utf-8"), encoding="utf-8"
     )
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
-    (tmp_path / "README.md").write_text("test\n", encoding="utf-8")
-    subprocess.run(["git", "add", "README.md"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
-    for tag in tags:
-        subprocess.run(["git", "tag", tag], cwd=tmp_path, check=True)
-    return tmp_path
-
-
-@pytest.fixture
-def today() -> datetime:
-    return datetime(2026, 9, 2, tzinfo=UTC)
-
-
-def test_resolve_version_first_release_of_the_day(tmp_path: Path, today: datetime) -> None:
-    repo = _init_repo_with_tags(tmp_path, [])
-    assert resolve_version(repo, today=today) == "2026.09.02.00"
-
-
-def test_resolve_version_increments_past_highest_existing_sequence(
-    tmp_path: Path, today: datetime
-) -> None:
-    repo = _init_repo_with_tags(
-        tmp_path, ["v2026.09.02.00", "v2026.09.02.01", "v2026.09.02.03"]
-    )
-    assert resolve_version(repo, today=today) == "2026.09.02.04"
-
-
-def test_resolve_version_ignores_tags_from_other_days(
-    tmp_path: Path, today: datetime
-) -> None:
-    repo = _init_repo_with_tags(tmp_path, ["v2026.09.01.05", "v2026.08.20.01"])
-    assert resolve_version(repo, today=today) == "2026.09.02.00"
-
-
-def test_resolve_version_ignores_unsuffixed_and_malformed_tags(
-    tmp_path: Path, today: datetime
-) -> None:
-    repo = _init_repo_with_tags(
-        tmp_path, ["v2026.09.02", "v2026.09.02.abc", "1.2.3", "v2026.09.02.02"]
-    )
-    assert resolve_version(repo, today=today) == "2026.09.02.03"
-
-
-def test_build_archive_stamps_version_and_contains_component_files(
-    tmp_path: Path,
-) -> None:
-    component_dir = tmp_path / "custom_components" / "monoprice_custom"
-    component_dir.mkdir(parents=True)
-    (component_dir / "manifest.json").write_text(
-        json.dumps({"domain": "monoprice_custom", "version": "0.0.0"}),
+    (component / "manifest.json").write_text(
+        json.dumps({"domain": "monoprice_custom", "version": version}, indent=2) + "\n",
         encoding="utf-8",
     )
-    (component_dir / "__init__.py").write_text("", encoding="utf-8")
-    translations_dir = component_dir / "translations"
-    translations_dir.mkdir()
-    (translations_dir / "en.json").write_text("{}", encoding="utf-8")
+    (component / "__init__.py").write_text("", encoding="utf-8")
+    (component / "translations").mkdir()
+    (component / "translations" / "en.json").write_text("{}", encoding="utf-8")
+    (component / "__pycache__").mkdir()
+    (component / "__pycache__" / "x.pyc").write_bytes(b"")
+    return repository
 
-    output = tmp_path / "dist" / "monoprice_custom.zip"
-    build_archive(tmp_path, "2026.09.02.00", output)
 
-    assert output.exists()
-    with zipfile.ZipFile(output) as archive:
+def test_repository_manifest_version_validates() -> None:
+    assert validate_versions(ROOT) == EXPECTED_VERSION
+
+
+def test_next_calver_uses_highest_sequence_for_release_date() -> None:
+    assert (
+        next_calver(
+            ["v2026.09.01.9", "v2026.09.02.1", "v2026.09.02.4", "v2026.09.02.00", "1.2.3"],
+            date(2026, 9, 2),
+        )
+        == "2026.09.02.5"
+    )
+
+
+def test_next_calver_starts_new_day_at_one() -> None:
+    assert next_calver(["v2026.09.02.8"], date(2026, 9, 3)) == "2026.09.03.1"
+
+
+def test_parse_calver_rejects_invalid_versions() -> None:
+    for value in ("2026.02.30.1", "2026.9.02.1", "2026.09.02.0", "v2026.09.02.1"):
+        with pytest.raises(ValueError):
+            parse_calver(value)
+
+
+def test_set_version_writes_the_manifest_and_validates(tmp_path: Path) -> None:
+    repository = _repo(tmp_path)
+    manifest = repository / "custom_components/monoprice_custom/manifest.json"
+    original_mode = stat.S_IMODE(manifest.stat().st_mode)
+
+    set_version(repository, "2026.09.02.3")
+
+    assert validate_versions(repository) == "2026.09.02.3"
+    assert stat.S_IMODE(manifest.stat().st_mode) == original_mode
+
+
+def test_validate_rejects_malformed_version(tmp_path: Path) -> None:
+    repository = _repo(tmp_path, version="2026.9.2.01")
+    with pytest.raises(ValueError):
+        validate_versions(repository)
+
+
+def test_build_archive_is_reproducible_and_hacs_compatible(tmp_path: Path) -> None:
+    repository = _repo(tmp_path)
+    first = tmp_path / "first.zip"
+    second = tmp_path / "second.zip"
+
+    first_version, first_digest = build_archive(repository, first)
+    second_version, second_digest = build_archive(repository, second)
+
+    assert first_version == second_version == "2026.09.02.2"
+    assert first_digest == second_digest
+    assert first.read_bytes() == second.read_bytes()
+
+    with zipfile.ZipFile(first) as archive:
         names = set(archive.namelist())
-        assert names == {
-            "manifest.json",
-            "__init__.py",
-            "translations/en.json",
-        }
-        manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["version"] == "2026.09.02.00"
-        assert manifest["domain"] == "monoprice_custom"
+        assert names == {"manifest.json", "__init__.py", "translations/en.json"}
+        assert json.loads(archive.read("manifest.json"))["version"] == "2026.09.02.2"

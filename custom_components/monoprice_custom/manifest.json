@@ -1,14 +1,22 @@
 {
   "domain": "monoprice_custom",
   "name": "Monoprice 6-Zone Amplifier",
-  "codeowners": ["@trooperthorn"],
+  "codeowners": [
+    "@trooperthorn"
+  ],
   "config_flow": true,
-  "dependencies": ["usb"],
+  "dependencies": [
+    "usb"
+  ],
   "documentation": "https://github.com/trooperthorn/ha_int_monoprice_6chan",
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/trooperthorn/ha_int_monoprice_6chan/issues",
-  "loggers": ["pymonoprice"],
-  "requirements": ["pymonoprice==0.6.1"],
-  "version": "2026.09.01.1"
+  "loggers": [
+    "pymonoprice"
+  ],
+  "requirements": [
+    "pymonoprice==0.6.1"
+  ],
+  "version": "2026.09.03.1"
 }

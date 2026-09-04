@@ -1,8 +1,4 @@
-# Reconciles main into a complete, verifiable GitHub Release. A push to main
-# (i.e. a merged PR) is the release trigger: nobody bumps manifest.json or
-# tags a release by hand, the version is resolved automatically from git tag
-# history by scripts/build_release_artifacts.py. Reruns are safe; an
-# already-published version is left immutable.
+# A merge to main is the release trigger; see docs/operations.md.
 name: Release
 
 on:
@@ -18,17 +14,23 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  ARCHIVE: monoprice_custom.zip
+
 jobs:
-  # Use the same authoritative checks that gate pull requests. The publishing
-  # job cannot begin until hassfest, HACS validation, and the test suite pass.
   tests:
-    uses: ./.github/workflows/validate.yaml
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
+  validate:
+    uses: ./.github/workflows/validate.yml
     permissions:
       contents: read
 
   release:
     if: github.ref == 'refs/heads/main'
-    needs: tests
+    needs: [tests, validate]
     runs-on: ubuntu-latest
     permissions:
       attestations: write
@@ -47,20 +49,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="$(python3 - <<'PY'
-          from pathlib import Path
-          from scripts.build_release_artifacts import resolve_version
-          print(resolve_version(Path.cwd()))
-          PY
-          )"
-          TAG="v${VERSION}"
+          VERSION="$(python3 scripts/build_release_artifacts.py --validate-only)"
+          PREFIX="$(python3 -c 'import json; print(json.load(open(".release.json")).get("tag_prefix", "v"))')"
+          TAG="${PREFIX}${VERSION}"
           printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
           printf 'tag=%s\n' "$TAG" >> "$GITHUB_OUTPUT"
 
-          RELEASE_DRAFT="$(gh release view "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --json isDraft \
-            --jq .isDraft 2>/dev/null || true)"
+          RELEASE_DRAFT="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)"
           if [ "$RELEASE_DRAFT" = "false" ]; then
             echo "Published release $TAG already exists; no asset will be replaced."
             printf 'publish=false\n' >> "$GITHUB_OUTPUT"
@@ -69,7 +64,6 @@ jobs:
           if [ "$RELEASE_DRAFT" = "true" ]; then
             echo "Resuming incomplete draft release $TAG."
           fi
-
           if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
             TAG_COMMIT="$(git rev-list -n 1 "$TAG")"
             if [ "$TAG_COMMIT" != "$GITHUB_SHA" ]; then
@@ -81,20 +75,16 @@ jobs:
 
       - name: Build deterministic HACS archive
         if: steps.version.outputs.publish == 'true'
-        run: |
-          python3 scripts/build_release_artifacts.py \
-            --version "${{ steps.version.outputs.version }}" \
-            --output dist/monoprice_custom.zip
+        run: python3 scripts/build_release_artifacts.py --output "dist/${ARCHIVE}"
 
-      # Pinned to the immutable commit behind anchore/sbom-action v0.24.2.
-      # GitHub's attestation guidance names this action as its SBOM generator.
+      # See docs/security.md for the SBOM, attestation, and sequencing rules.
       - name: Generate SPDX SBOM
         if: steps.version.outputs.publish == 'true'
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
-          file: dist/monoprice_custom.zip
+          file: dist/${{ env.ARCHIVE }}
           format: spdx-json
-          output-file: dist/monoprice_custom.spdx.json
+          output-file: dist/${{ env.ARCHIVE }}.spdx.json
           upload-artifact: false
           upload-release-assets: false
           dependency-snapshot: false
@@ -102,25 +92,21 @@ jobs:
       - name: Generate release checksums
         if: steps.version.outputs.publish == 'true'
         working-directory: dist
-        run: sha256sum monoprice_custom.zip monoprice_custom.spdx.json > SHA256SUMS
+        run: sha256sum "${ARCHIVE}" "${ARCHIVE}.spdx.json" > SHA256SUMS
 
-      # Pinned to the immutable commit behind actions/attest v4.
       - name: Attest build provenance
         if: steps.version.outputs.publish == 'true'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-path: dist/monoprice_custom.zip
+          subject-path: dist/${{ env.ARCHIVE }}
 
       - name: Attest the release SBOM
         if: steps.version.outputs.publish == 'true'
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-path: dist/monoprice_custom.zip
-          sbom-path: dist/monoprice_custom.spdx.json
+          subject-path: dist/${{ env.ARCHIVE }}
+          sbom-path: dist/${{ env.ARCHIVE }}.spdx.json
 
-      # Immutable releases lock their tag and assets at publication. GitHub's
-      # recommended sequence is therefore: draft, attach everything, publish.
-      # A failed run can safely resume and replace assets while still a draft.
       - name: Stage immutable tag and draft release
         if: steps.version.outputs.publish == 'true'
         env:
@@ -130,42 +116,28 @@ jobs:
         run: |
           set -euo pipefail
           if ! git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
-            gh api --method POST \
-              "/repos/${GITHUB_REPOSITORY}/git/refs" \
-              --field "ref=refs/tags/$TAG" \
-              --field "sha=$GITHUB_SHA" >/dev/null
+            gh api --method POST "/repos/${GITHUB_REPOSITORY}/git/refs" \
+              --field "ref=refs/tags/$TAG" --field "sha=$GITHUB_SHA" >/dev/null
           fi
-
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            IS_DRAFT="$(gh release view "$TAG" \
-              --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+            IS_DRAFT="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
             if [ "$IS_DRAFT" != "true" ]; then
               echo "::error::Release $TAG was published during this run."
               exit 1
             fi
           else
-            gh release create "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "Monoprice 6-Zone Amplifier $TAG" \
-              --generate-notes \
-              --verify-tag \
-              --draft
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Monoprice 6-Zone Amplifier $TAG" --generate-notes --verify-tag --draft
           fi
-
-          gh release upload "$TAG" \
-            dist/monoprice_custom.zip \
-            dist/monoprice_custom.spdx.json \
-            dist/SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
+          gh release upload "$TAG" "dist/${ARCHIVE}" "dist/${ARCHIVE}.spdx.json" dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Publish and lock the complete release
         if: steps.version.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
-        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
 
       - name: Publish verification instructions
         if: steps.version.outputs.publish == 'true'
@@ -178,8 +150,8 @@ jobs:
             echo "Published \`$TAG\` from \`$GITHUB_SHA\`."
             echo
             echo '```bash'
-            echo "gh release download $TAG -R $GITHUB_REPOSITORY -p monoprice_custom.zip -p SHA256SUMS"
+            echo "gh release download $TAG -R $GITHUB_REPOSITORY -p ${ARCHIVE} -p SHA256SUMS"
             echo 'sha256sum --check SHA256SUMS --ignore-missing'
-            echo "gh attestation verify monoprice_custom.zip -R $GITHUB_REPOSITORY"
+            echo "gh attestation verify ${ARCHIVE} -R $GITHUB_REPOSITORY"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

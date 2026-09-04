@@ -18,7 +18,6 @@ PLATFORMS = [
     Platform.REMOTE,
 ]
 
-# Configuration UI and Source Keys
 CONF_SOURCES = "sources"
 CONF_SOURCE_1 = "source_1"
 CONF_SOURCE_2 = "source_2"
@@ -28,12 +27,10 @@ CONF_SOURCE_5 = "source_5"
 CONF_SOURCE_6 = "source_6"
 CONF_BAUD_RATE = "baud_rate"
 
-# Compatibility strings for media_player.py imports
 CONF_NAME = "name"
 MONOPRICE_OBJECT = "monoprice_custom"
 UNDO_UPDATE_LISTENER = "undo_update_listener"
 
-# Integration lifecycle tracking
 FIRST_RUN = "first_run"
 CONF_NOT_FIRST_RUN = "not_first_run"
 
@@ -46,8 +43,7 @@ SERVICE_SET_BAUD_RATE = "set_baud_rate"
 
 ATTR_BAUD_RATE = "baud_rate"
 
-# Service field names - these are the raw 0-14/0-20 wire-protocol values,
-# distinct from the signed dB-style ranges number.py exposes to the UI.
+# Raw wire-protocol values, not the display values; see docs/protocol.md.
 ATTR_BALANCE = "level"
 ATTR_BASS = "level"
 ATTR_TREBLE = "level"

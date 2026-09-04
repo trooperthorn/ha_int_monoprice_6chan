@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers.typing import ConfigType
 
 from .api import get_monoprice_extended
 from .const import (
@@ -23,8 +24,10 @@ from .const import (
     PLATFORMS,
 )
 from .coordinator import MonopriceCoordinator
+from .device import async_ensure_unit_devices
 from .gateway import MonopriceGateway
 from .serial import POWER_ON_BAUD_RATE, canonicalize_endpoint, endpoint_identity
+from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,12 +78,17 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the Monoprice component."""
+    async_setup_services(hass)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: MonopriceConfigEntry) -> bool:
     """Set up Monoprice 6-Zone Amplifier from a config entry."""
     port = entry.data[CONF_PORT]
 
     try:
-        # Spin up the synchronous serial connection in the executor
         monoprice = await hass.async_add_executor_job(get_monoprice_extended, port)
     except (serialx.SerialException, PermissionError, OSError) as err:
         _LOGGER.error("Error connecting to Monoprice controller at %s", port)
@@ -94,8 +102,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MonopriceConfigEntry) ->
     coordinator = MonopriceCoordinator(hass, gateway, entry)
 
     try:
-        # Fetch initial state before entities are created. Any setup failure must
-        # release the interface so a retry or reconfigure can open it.
+        # Release the interface on failure so a retry/reconfigure can reopen it.
         await coordinator.async_config_entry_first_refresh()
     except Exception:
         await coordinator.async_shutdown()
@@ -110,15 +117,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: MonopriceConfigEntry) ->
             entry, data={**entry.data, CONF_NOT_FIRST_RUN: True}
         )
 
-    # Modern listener registration - HA automatically cleans this up on unload
     entry.async_on_unload(entry.add_update_listener(_update_listener))
 
-    # Platinum standard: Use entry.runtime_data instead of hass.data
     entry.runtime_data = MonopriceData(
         coordinator=coordinator,
         gateway=gateway,
         first_run=first_run,
     )
+
+    # via_device_id must name an already-registered device, so the controller
+    # and unit devices are created here before any platform builds a zone's
+    # DeviceInfo; see docs/design.md.
+    async_ensure_unit_devices(hass, entry.entry_id, coordinator.active_units)
 
     try:
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

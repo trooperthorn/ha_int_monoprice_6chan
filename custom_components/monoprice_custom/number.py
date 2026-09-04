@@ -11,15 +11,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .__init__ import MonopriceConfigEntry
-from .device import zone_device_info
+from .device import async_ensure_unit_devices, zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
 
-# Wire protocol range for BS/TR is 0-14, where 0 is -7dB and 14 is +7dB
-# (per the RS-232 spec and pymonoprice's ZoneStatus). We display the
-# translated signed dB value to the user instead of the raw 0-14 code.
+# Wire-to-display offset for BS/TR; see docs/protocol.md.
 EQ_WIRE_OFFSET = 7
 
 
@@ -34,13 +32,14 @@ async def async_setup_entry(
     known_units: set[int] = set()
 
     def _add_units(units: set[int]) -> None:
+        async_ensure_unit_devices(hass, entry.entry_id, units)
         entities: list[MonopriceZoneNumber] = []
         for unit in sorted(units):
             for zone in range(1, 7):
                 zone_id = unit * 10 + zone
                 entities.extend(
                     MonopriceZoneNumber(
-                        coordinator, entry.entry_id, zone_id, control_type
+                        hass, coordinator, entry.entry_id, zone_id, control_type
                     )
                     for control_type in ("Balance", "Bass", "Treble")
                 )
@@ -66,6 +65,7 @@ class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
 
     def __init__(
         self,
+        hass: HomeAssistant,
         coordinator,
         entry_id: str,
         zone_id: int,
@@ -78,10 +78,10 @@ class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
 
         self._attr_unique_id = f"{entry_id}_{self._zone_id}_{self._control_type}"
         self._attr_name = f"{control_type} level"
-        self._attr_device_info = zone_device_info(entry_id, self._zone_id)
+        self._attr_device_info = zone_device_info(hass, entry_id, self._zone_id)
 
         if control_type == "Balance":
-            # Wire range 0-20: 0 is full left, 10 is center, 20 is full right.
+            # See docs/protocol.md for the 0-20 wire range.
             self._attr_native_min_value = -10
             self._attr_native_max_value = 10
             self._attr_translation_key = "balance"

@@ -47,8 +47,7 @@ class EndpointIdentity:
 
 def _read_zone_status(port: serialx.BaseSerial) -> ZoneStatus | None:
     """Read and structurally parse a Zone 11 response."""
-    # Responses are framed as ``\r\n#>11...\r\n#``. The first read consumes
-    # the leading marker and the second consumes the status record.
+    # Two reads to consume the frame; see docs/protocol.md.
     first = port.read_until(b"\r\n#", size=128, timeout=VALIDATION_TIMEOUT)
     second = port.read_until(b"\r\n#", size=128, timeout=VALIDATION_TIMEOUT)
     response = first + second
