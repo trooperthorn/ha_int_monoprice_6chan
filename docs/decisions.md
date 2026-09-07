@@ -32,3 +32,14 @@ and a flat device per zone, which loses the hardware hierarchy.
 All six entity services register through `service.async_register_platform_entity_service`
 so they exist before any platform loads (developer blog 2025-09-25). Rejected: the
 deprecated per-platform registration.
+
+## 2026-09-06, `serialx` is now declared in the manifest
+
+The integration has imported `serialx` directly since the serialx migration, but the
+manifest listed only `pymonoprice`, so the import worked only because another
+integration on the same host (Elk-M1 or Davis) had installed serialx. When those two
+failed to install on core 2026.9.1 (their exact `serialx==1.9.0` pins collided with
+core's new `serialx==1.10.0` constraint) this integration was one uninstall away from
+losing its import. The manifest now declares `serialx>=1.9.0,<2` as a range so core's
+own `package_constraints.txt` picks the version; hassfest only requires exact pins for
+core integrations. The test pin stays exact and tracks core's current constraint.
