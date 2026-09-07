@@ -101,6 +101,19 @@ def _options_schema(
     return vol.Schema(fields)
 
 
+def _interface_schema(suggested_port: str | None = None) -> vol.Schema:
+    """Build the single serial-port selector form used by every interface step."""
+    if suggested_port:
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_PORT, description={"suggested_value": suggested_port}
+                ): SerialPortSelector()
+            }
+        )
+    return vol.Schema({vol.Required(CONF_PORT): SerialPortSelector()})
+
+
 def _same_local_device(first: str, second: str) -> bool:
     """Compare local device aliases without rewriting serial URLs."""
     if first == second:
@@ -202,10 +215,7 @@ class MonopriceConfigFlow(  # type: ignore[call-arg]
             self._submitted_port = user_input[CONF_PORT]
             return await self.async_step_verify()
 
-        return self.async_show_form(
-            step_id="user",
-            data_schema=vol.Schema({vol.Required(CONF_PORT): SerialPortSelector()}),
-        )
+        return self.async_show_form(step_id="user", data_schema=_interface_schema())
 
     @override
     async def async_step_reconfigure(
@@ -219,14 +229,20 @@ class MonopriceConfigFlow(  # type: ignore[call-arg]
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_PORT,
-                        default=self._reconfigure_entry.data[CONF_PORT],
-                    ): SerialPortSelector()
-                }
-            ),
+            data_schema=_interface_schema(self._reconfigure_entry.data[CONF_PORT]),
+        )
+
+    async def async_step_interface(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Re-prompt for a serial port after a failed verification attempt."""
+        if user_input is not None:
+            self._submitted_port = user_input[CONF_PORT]
+            return await self.async_step_verify()
+
+        return self.async_show_form(
+            step_id="interface",
+            data_schema=_interface_schema(self._submitted_port),
         )
 
     async def async_step_verify(
@@ -265,10 +281,16 @@ class MonopriceConfigFlow(  # type: ignore[call-arg]
                 else:
                     return await self.async_step_reconfigure_options()
 
+        if errors:
+            return self.async_show_form(
+                step_id="interface",
+                data_schema=_interface_schema(self._submitted_port),
+                errors=errors,
+            )
+
         return self.async_show_form(
             step_id="verify",
             data_schema=vol.Schema({}),
-            errors=errors,
             description_placeholders={"port": self._submitted_port},
         )
 

@@ -2,14 +2,15 @@
   "config": {
     "step": {
       "user": {
-        "title": "Select serial interface",
+        "title": "Connect via USB / Serial",
+        "description": "Select one USB or serial port. Opening this form does not touch any port; only the selected port is opened, and only after you confirm the next step.",
         "data": {
-          "port": "[%key:common::config_flow::data::port%]"
+          "port": "USB / Serial Port"
         }
       },
       "verify": {
         "title": "Verify Monoprice amplifier",
-        "description": "Verify the Monoprice amplifier connected to {port}. The selected interface will be opened briefly and closed after verification."
+        "description": "Verify the Monoprice amplifier connected to {port}. Only this port is opened; the amplifier is asked for its zone 11 status while the baud rate is detected, and the port is closed again before you continue."
       },
       "options": {
         "title": "Configure amplifier",
@@ -24,9 +25,10 @@
         }
       },
       "reconfigure": {
-        "title": "Select serial interface",
+        "title": "Reconfigure Monoprice amplifier",
+        "description": "[%key:component::monoprice_custom::config::step::user::description%]",
         "data": {
-          "port": "[%key:common::config_flow::data::port%]"
+          "port": "[%key:component::monoprice_custom::config::step::user::data::port%]"
         }
       },
       "reconfigure_options": {
@@ -39,6 +41,13 @@
           "source_5": "[%key:component::monoprice_custom::config::step::options::data::source_5%]",
           "source_6": "[%key:component::monoprice_custom::config::step::options::data::source_6%]",
           "baud_rate": "[%key:component::monoprice_custom::config::step::options::data::baud_rate%]"
+        }
+      },
+      "interface": {
+        "title": "[%key:component::monoprice_custom::config::step::user::title%]",
+        "description": "Verification failed on the previous port. Pick the port again, or choose a different one, and the next step will verify only that port.",
+        "data": {
+          "port": "[%key:component::monoprice_custom::config::step::user::data::port%]"
         }
       }
     },
