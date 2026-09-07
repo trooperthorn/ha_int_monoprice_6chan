@@ -113,13 +113,16 @@ Every command documented in the Monoprice Multizone Controller RS-232 spec is re
 
 ## 🔌 Configuration Best Practices
 
-The supported setup path is:
+The supported setup path is three steps, in this order, on purpose: you cannot
+name a zone until the integration knows the zone exists, and it cannot know
+that until the amplifier has actually answered a status query.
 
-`Connect via USB / Serial -> Verify Monoprice amplifier -> Configure amplifier -> Complete`
+`Connect via USB / Serial -> Verify Monoprice amplifier -> Configure amplifier -> Name each zone's media player -> Complete`
 
 * **Connect via USB / Serial:** Uses Home Assistant's native serial-port selector, the same step Davis Vantage and Elk-M1 use. Manual paths and serial URLs remain available for containers and remote serial bridges. Opening the form does not open a port; only the submitted port is probed, and only after the verify step is confirmed. On Linux, `/dev/serial/by-id` is preferred, with `/dev/serial/by-path` as a fallback. Windows `COM*` paths remain supported.
-* **Verify Monoprice amplifier:** Opens only the selected port, asks the amplifier for its zone 11 status while detecting the baud rate, and closes the port before continuing. If the probe fails, the selector is shown again with the reason so you can pick the port again or choose a different one without restarting the flow.
+* **Verify Monoprice amplifier:** Opens only the selected port, asks the amplifier for its zone 11 status while detecting the baud rate, then probes for a second and third expansion unit before closing the port. If the probe fails, the selector is shown again with the reason so you can pick the port again or choose a different one without restarting the flow.
 * **Configure amplifier:** Owns source names and the target link speed. The port, adapter identity, and detected baud remain config-entry data.
+* **Name each zone's media player:** One optional field per zone actually detected in the previous step (6, 12, or 18 fields, depending on how many expansion units answered). A blank field keeps that zone's default `Zone N` name. **The amplifier itself has no way to store a room name** - unlike the source names above, which the keypad displays, a zone label only ever exists in Home Assistant - so this step, and the matching one under **Configure**, are the only places it's set.
 
 If you are using a multi-port USB-to-Serial adapter (like a 4-port FTDI cable), **always select the path starting with `/dev/serial/by-id/...`**. 
 Linux frequently reassigns basic `/dev/ttyUSB0` paths when your server reboots. Using the `by-id` path guarantees the integration will always find the amplifier, even if you move the USB cable to a different port on your host machine.
@@ -150,6 +153,10 @@ The amplifier always powers on at 9600 baud. On first poll after startup the int
 ## 🔁 Reconfiguring
 
 If you move the amplifier to a different USB/serial port, use **Settings → Devices & Services → Monoprice → Reconfigure** instead of removing and re-adding the integration, it keeps your existing entities, automations, and history intact. Reconfigure uses the same selector and verifier as setup; when the adapter exposes a stable USB identity, a different adapter is rejected, and a failed probe leaves the existing entry untouched.
+
+**Why removing and re-adding is not equivalent.** Every entity's id here is built from this specific config entry's own internal id plus the zone number - the standard, correct way a Home Assistant integration builds entity ids, and the same approach Davis Vantage and Elk-M1 use. That id only lives as long as one config entry does. Removing the integration deletes that entry, and Home Assistant deletes its entity-registry rows - your renamed zones included - along with it; a fresh "Add Integration" afterward creates a brand-new entry with a brand-new internal id, so even reusing the exact same zone names produces entities with different ids than before. Reconfigure edits the same entry in place, so nothing is ever deleted.
+
+**Renaming a zone without touching the port.** If only a zone's name needs to change - no port or amplifier involved - use **Settings → Devices & Services → Monoprice → Configure** instead of Reconfigure. It asks for source names and target baud, then the same zone-name step described above, pre-filled with whatever is already set, without probing the serial port at all.
 
 ---
 

@@ -35,6 +35,9 @@ class ValidationResult:
     """Result of a short-lived Monoprice endpoint validation."""
 
     detected_baud: int
+    # Which expansion units (1, 2, 3) answered a status query, so the config
+    # flow's zone-naming step knows how many zones actually exist to name.
+    detected_units: tuple[int, ...] = (1,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,8 +49,11 @@ class EndpointIdentity:
 
 
 def _read_zone_status(port: serialx.BaseSerial) -> ZoneStatus | None:
-    """Read and structurally parse a Zone 11 response."""
-    # Two reads to consume the frame; see docs/protocol.md.
+    """Read and structurally parse a zone status response.
+
+    Used both for the required Zone 11 confirmation and the optional
+    expansion-unit probes below; see docs/protocol.md for the frame shape.
+    """
     first = port.read_until(b"\r\n#", size=128, timeout=VALIDATION_TIMEOUT)
     second = port.read_until(b"\r\n#", size=128, timeout=VALIDATION_TIMEOUT)
     response = first + second
@@ -55,6 +61,37 @@ def _read_zone_status(port: serialx.BaseSerial) -> ZoneStatus | None:
         return ZoneStatus.from_string(response.decode("ascii"))
     except (UnicodeDecodeError, ValueError):
         return None
+
+
+def _probe_zone(port: serialx.BaseSerial, zone: int) -> bool:
+    """Ask one zone for its status; return whether that exact zone answered.
+
+    Best-effort: a missing expansion unit simply times out or answers with a
+    different zone number, either of which means "not present," not a
+    validation failure - only the Zone 11 confirmation above is required.
+    """
+    port.reset_input_buffer()
+    port.write(f"?{zone}\r".encode("ascii"))
+    port.flush()
+    try:
+        status = _read_zone_status(port)
+    except TimeoutError:
+        return False
+    return status is not None and status.zone == zone
+
+
+def _detect_expansion_units(port: serialx.BaseSerial) -> tuple[int, ...]:
+    """Probe for unit 2, then unit 3 only if unit 2 answered.
+
+    Mirrors `MonopriceCoordinator._async_discover_active_units`'s ordering:
+    units are numbered contiguously, so there is no unit 3 without a unit 2.
+    """
+    units = [1]
+    if _probe_zone(port, 21):
+        units.append(2)
+        if _probe_zone(port, 31):
+            units.append(3)
+    return tuple(units)
 
 
 def validate_monoprice_endpoint(
@@ -101,7 +138,10 @@ def validate_monoprice_endpoint(
             except TimeoutError:
                 continue
             if status is not None and status.zone == 11:
-                return ValidationResult(detected_baud=baud)
+                detected_units = _detect_expansion_units(port)
+                return ValidationResult(
+                    detected_baud=baud, detected_units=detected_units
+                )
 
         raise NotMonopriceDevice(port_url)
     except TimeoutError as err:

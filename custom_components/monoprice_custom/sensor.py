@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .__init__ import MonopriceConfigEntry
+from .const import CONF_ZONE_NAMES
 from .device import async_ensure_unit_devices, zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,13 +28,16 @@ async def async_setup_entry(
 ) -> None:
     """Set up Monoprice sensor entities from a config entry."""
     coordinator = entry.runtime_data.coordinator
+    zone_names = entry.options.get(CONF_ZONE_NAMES, {})
 
     known_units: set[int] = set()
 
     def _add_units(units: set[int]) -> None:
         async_ensure_unit_devices(hass, entry.entry_id, units)
         entities = [
-            MonopriceKeypadSensor(hass, coordinator, entry.entry_id, unit * 10 + zone)
+            MonopriceKeypadSensor(
+                hass, coordinator, entry.entry_id, unit * 10 + zone, zone_names
+            )
             for unit in sorted(units)
             for zone in range(1, 7)
         ]
@@ -61,13 +65,19 @@ class MonopriceKeypadSensor(CoordinatorEntity, SensorEntity):
     _attr_icon = "mdi:dialpad"
 
     def __init__(
-        self, hass: HomeAssistant, coordinator, entry_id: str, zone_id: int
+        self,
+        hass: HomeAssistant,
+        coordinator,
+        entry_id: str,
+        zone_id: int,
+        zone_names: dict[str, str] | None = None,
     ) -> None:
         """Initialize keypad sensor."""
         super().__init__(coordinator)
         self._zone_id = zone_id
         self._attr_unique_id = f"{entry_id}_{zone_id}_keypad_status"
-        self._attr_device_info = zone_device_info(hass, entry_id, zone_id)
+        custom_name = (zone_names or {}).get(str(zone_id))
+        self._attr_device_info = zone_device_info(hass, entry_id, zone_id, custom_name)
 
     @property
     def entity_registry_enabled_default(self) -> bool:

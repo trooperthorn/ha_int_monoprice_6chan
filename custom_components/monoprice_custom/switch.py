@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .__init__ import MonopriceConfigEntry
+from .const import CONF_ZONE_NAMES
 from .device import async_ensure_unit_devices, zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up Monoprice switch entities."""
     coordinator = entry.runtime_data.coordinator
+    zone_names = entry.options.get(CONF_ZONE_NAMES, {})
 
     known_units: set[int] = set()
 
@@ -34,10 +36,20 @@ async def async_setup_entry(
             entities.extend(
                 (
                     MonopricePASwitch(
-                        hass, coordinator, entry.entry_id, master_id, is_master=True
+                        hass,
+                        coordinator,
+                        entry.entry_id,
+                        master_id,
+                        is_master=True,
+                        zone_names=zone_names,
                     ),
                     MonopriceDNDSwitch(
-                        hass, coordinator, entry.entry_id, master_id, is_master=True
+                        hass,
+                        coordinator,
+                        entry.entry_id,
+                        master_id,
+                        is_master=True,
+                        zone_names=zone_names,
                     ),
                 )
             )
@@ -45,8 +57,20 @@ async def async_setup_entry(
                 zone_id = unit * 10 + zone
                 entities.extend(
                     (
-                        MonopricePASwitch(hass, coordinator, entry.entry_id, zone_id),
-                        MonopriceDNDSwitch(hass, coordinator, entry.entry_id, zone_id),
+                        MonopricePASwitch(
+                            hass,
+                            coordinator,
+                            entry.entry_id,
+                            zone_id,
+                            zone_names=zone_names,
+                        ),
+                        MonopriceDNDSwitch(
+                            hass,
+                            coordinator,
+                            entry.entry_id,
+                            zone_id,
+                            zone_names=zone_names,
+                        ),
                     )
                 )
         if entities:
@@ -74,6 +98,7 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
         entry_id: str,
         zone_id: int,
         is_master: bool = False,
+        zone_names: dict[str, str] | None = None,
     ) -> None:
         """Initialize PA switch."""
         super().__init__(coordinator)
@@ -84,7 +109,8 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
         self._attr_name = "PA" if is_master else "Public Address"
         self._attr_translation_key = "pa_switch"
         self._attr_unique_id = f"{entry_id}_{zone_id}_pa_switch"
-        self._attr_device_info = zone_device_info(hass, entry_id, zone_id)
+        custom_name = (zone_names or {}).get(str(zone_id))
+        self._attr_device_info = zone_device_info(hass, entry_id, zone_id, custom_name)
 
     @property
     def entity_registry_enabled_default(self) -> bool:
@@ -128,6 +154,7 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
         entry_id: str,
         zone_id: int,
         is_master: bool = False,
+        zone_names: dict[str, str] | None = None,
     ) -> None:
         """Initialize DND switch."""
         super().__init__(coordinator)
@@ -137,7 +164,8 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_name = "Master DND" if is_master else "Do Not Disturb"
         self._attr_translation_key = "dnd_switch"
         self._attr_unique_id = f"{entry_id}_{zone_id}_dnd_switch"
-        self._attr_device_info = zone_device_info(hass, entry_id, zone_id)
+        custom_name = (zone_names or {}).get(str(zone_id))
+        self._attr_device_info = zone_device_info(hass, entry_id, zone_id, custom_name)
 
     @property
     def entity_registry_enabled_default(self) -> bool:

@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .__init__ import MonopriceConfigEntry
-from .const import CONF_SOURCES
+from .const import CONF_SOURCES, CONF_ZONE_NAMES
 from .device import async_ensure_unit_devices, zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
     sources_data = entry.options if CONF_SOURCES in entry.options else entry.data
     sources = _get_sources_from_dict(sources_data)
+    zone_names = entry.options.get(CONF_ZONE_NAMES, {})
 
     known_units: set[int] = set()
 
@@ -52,11 +53,18 @@ async def async_setup_entry(
         entities = []
         for unit in sorted(units):
             entities.append(
-                MonopriceZone(hass, coordinator, entry.entry_id, unit * 10, sources)
+                MonopriceZone(
+                    hass, coordinator, entry.entry_id, unit * 10, sources, zone_names
+                )
             )
             entities.extend(
                 MonopriceZone(
-                    hass, coordinator, entry.entry_id, unit * 10 + zone, sources
+                    hass,
+                    coordinator,
+                    entry.entry_id,
+                    unit * 10 + zone,
+                    sources,
+                    zone_names,
                 )
                 for zone in range(1, 7)
             )
@@ -91,12 +99,16 @@ class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
         entry_id: str,
         zone_id: int,
         sources: tuple[dict[int, str], dict[str, int], list[str]],
+        zone_names: dict[str, str] | None = None,
     ) -> None:
         super().__init__(coordinator)
         self._zone_id = zone_id
         self._source_id_name, self._source_name_id, self._attr_source_list = sources
         self._attr_unique_id = f"{entry_id}_{self._zone_id}"
-        self._attr_device_info = zone_device_info(hass, entry_id, self._zone_id)
+        custom_name = (zone_names or {}).get(str(zone_id))
+        self._attr_device_info = zone_device_info(
+            hass, entry_id, self._zone_id, custom_name
+        )
         self._attr_supported_features = (
             MediaPlayerEntityFeature.VOLUME_MUTE
             | MediaPlayerEntityFeature.VOLUME_SET

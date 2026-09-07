@@ -35,6 +35,30 @@
                 },
                 "title": "Configure amplifier"
             },
+            "zone_names": {
+                "title": "Name each zone's media player",
+                "description": "Optional. A blank field keeps that zone's default \"Zone N\" name; the amplifier itself has no way to store a room name, so this lives only in Home Assistant and can be changed later from Reconfigure or this integration's Configure option.",
+                "data": {
+                    "zone_11": "Zone 11 room name",
+                    "zone_12": "Zone 12 room name",
+                    "zone_13": "Zone 13 room name",
+                    "zone_14": "Zone 14 room name",
+                    "zone_15": "Zone 15 room name",
+                    "zone_16": "Zone 16 room name",
+                    "zone_21": "Zone 21 room name",
+                    "zone_22": "Zone 22 room name",
+                    "zone_23": "Zone 23 room name",
+                    "zone_24": "Zone 24 room name",
+                    "zone_25": "Zone 25 room name",
+                    "zone_26": "Zone 26 room name",
+                    "zone_31": "Zone 31 room name",
+                    "zone_32": "Zone 32 room name",
+                    "zone_33": "Zone 33 room name",
+                    "zone_34": "Zone 34 room name",
+                    "zone_35": "Zone 35 room name",
+                    "zone_36": "Zone 36 room name"
+                }
+            },
             "reconfigure": {
                 "title": "Reconfigure Monoprice amplifier",
                 "description": "Select one USB or serial port. Opening this form does not touch any port; only the selected port is opened, and only after you confirm the next step.",
@@ -53,6 +77,30 @@
                     "baud_rate": "Target link speed (baud)"
                 },
                 "title": "Configure amplifier"
+            },
+            "reconfigure_zone_names": {
+                "title": "Name each zone's media player",
+                "description": "Optional. A blank field keeps that zone's default \"Zone N\" name; the amplifier itself has no way to store a room name, so this lives only in Home Assistant and can be changed later from Reconfigure or this integration's Configure option.",
+                "data": {
+                    "zone_11": "Zone 11 room name",
+                    "zone_12": "Zone 12 room name",
+                    "zone_13": "Zone 13 room name",
+                    "zone_14": "Zone 14 room name",
+                    "zone_15": "Zone 15 room name",
+                    "zone_16": "Zone 16 room name",
+                    "zone_21": "Zone 21 room name",
+                    "zone_22": "Zone 22 room name",
+                    "zone_23": "Zone 23 room name",
+                    "zone_24": "Zone 24 room name",
+                    "zone_25": "Zone 25 room name",
+                    "zone_26": "Zone 26 room name",
+                    "zone_31": "Zone 31 room name",
+                    "zone_32": "Zone 32 room name",
+                    "zone_33": "Zone 33 room name",
+                    "zone_34": "Zone 34 room name",
+                    "zone_35": "Zone 35 room name",
+                    "zone_36": "Zone 36 room name"
+                }
             },
             "interface": {
                 "title": "Connect via USB / Serial",
@@ -76,6 +124,30 @@
                     "baud_rate": "Target link speed (baud)"
                 },
                 "title": "Configure sources"
+            },
+            "zone_names": {
+                "title": "Name each zone's media player",
+                "description": "Optional. A blank field keeps that zone's default \"Zone N\" name; the amplifier itself has no way to store a room name, so this lives only in Home Assistant and can be changed later from Reconfigure or this integration's Configure option.",
+                "data": {
+                    "zone_11": "Zone 11 room name",
+                    "zone_12": "Zone 12 room name",
+                    "zone_13": "Zone 13 room name",
+                    "zone_14": "Zone 14 room name",
+                    "zone_15": "Zone 15 room name",
+                    "zone_16": "Zone 16 room name",
+                    "zone_21": "Zone 21 room name",
+                    "zone_22": "Zone 22 room name",
+                    "zone_23": "Zone 23 room name",
+                    "zone_24": "Zone 24 room name",
+                    "zone_25": "Zone 25 room name",
+                    "zone_26": "Zone 26 room name",
+                    "zone_31": "Zone 31 room name",
+                    "zone_32": "Zone 32 room name",
+                    "zone_33": "Zone 33 room name",
+                    "zone_34": "Zone 34 room name",
+                    "zone_35": "Zone 35 room name",
+                    "zone_36": "Zone 36 room name"
+                }
             }
         }
     },

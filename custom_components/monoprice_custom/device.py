@@ -62,11 +62,22 @@ def unit_device_info(hass: HomeAssistant, entry_id: str, unit: int) -> DeviceInf
     )
 
 
-def zone_device_info(hass: HomeAssistant, entry_id: str, zone_id: int) -> DeviceInfo:
+def zone_device_info(
+    hass: HomeAssistant,
+    entry_id: str,
+    zone_id: int,
+    custom_name: str | None = None,
+) -> DeviceInfo:
     """Device representing a single zone, linked to its unit's master device.
 
     `zone_id` may itself be a master zone id (10/20/30), in which case the
-    unit device is returned directly.
+    unit device is returned directly. `custom_name` is the user-assigned
+    room name from CONF_ZONE_NAMES (config_flow.py's zone-names step); the
+    amplifier has no way to store this itself, so it lives only here, on
+    the Home Assistant side. Passing a device name through `_attr_name`
+    would attach it to the entity as a name suffix instead of using it as
+    the entity's own name (`_attr_has_entity_name` is True on every zone
+    entity), so the room name has to be set here, on the device.
     """
     unit = zone_id // 10
     if zone_id % 10 == 0:
@@ -75,7 +86,7 @@ def zone_device_info(hass: HomeAssistant, entry_id: str, zone_id: int) -> Device
         identifiers={(DOMAIN, f"{entry_id}_{zone_id}")},
         manufacturer="Monoprice",
         model="6-Zone Amplifier",
-        name=f"Zone {zone_id}",
+        name=custom_name or f"Zone {zone_id}",
         via_device_id=dr.async_get_device_id_by_identifier(
             hass, (DOMAIN, f"{entry_id}_{unit * 10}"), config_entry_id=entry_id
         ),

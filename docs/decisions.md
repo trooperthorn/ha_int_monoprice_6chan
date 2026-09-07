@@ -33,6 +33,37 @@ All six entity services register through `service.async_register_platform_entity
 so they exist before any platform loads (developer blog 2025-09-25). Rejected: the
 deprecated per-platform registration.
 
+## 2026-09-08, zone names live only in the config entry, never on the device
+
+`CONF_ZONE_NAMES` stores a zone's room name in the config entry's options, consumed by
+`device.py::zone_device_info()`. Rejected: sending it to the amplifier the way source
+names and the keypad boot message are sent (`text.py`'s `rename_source`/
+`set_keypad_message`). `docs/protocol.md`'s command table has no zone-label command;
+the amplifier's own concept of a zone is just its number. There is nothing to reject
+here beyond confirming that fact before building anything that assumed otherwise.
+
+## 2026-09-08, this same design already told a live install that removing and
+re-adding the integration would break it, and it happened anyway
+
+A production instance's `media_player.monoprice_kitchen`/`garage_left`/`garage_right`
+and their bass/treble number entities were lost after the config entry behind them was
+removed and a fresh one added, resetting every zone to its default `Zone N` name and
+id. The entity ids here are `f"{entry.entry_id}_{zone_id}"` - standard practice, and the
+same thing Elk-M1 and Davis Vantage do - so this isn't a defect in that scheme; a
+config entry's internal id is only ever stable for that entry's own lifetime, and no
+unique-id design survives the entry itself being deleted, because Home Assistant
+deletes that entry's entity-registry rows, custom names included, when the entry goes.
+The README already said to use Reconfigure instead of removing and re-adding
+(added by the 2026-09-06 PR, #9); it did not stop this from happening once, either
+because it happened before that line existed or because it was overlooked in the
+moment. Rejected: trying to design around this after the fact by keying entity ids to
+something that would survive a full delete - Home Assistant does not leave anything to
+key against once the entry is gone, so no unique-id scheme fixes a delete-then-recreate.
+The actual fix is the zone-names step (this session): naming a zone at setup time, or
+from Configure without touching the port at all, means even a future accidental
+remove-and-re-add only costs re-typing the same names once, not reverse-engineering
+which zone number used to be which room.
+
 ## 2026-09-06, `serialx` is now declared in the manifest
 
 The integration has imported `serialx` directly since the serialx migration, but the
