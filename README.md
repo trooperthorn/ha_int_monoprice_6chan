@@ -113,9 +113,13 @@ Every command documented in the Monoprice Multizone Controller RS-232 spec is re
 
 ## 🔌 Configuration Best Practices
 
-Configuration is deliberately staged: select a serial interface, explicitly
-verify the amplifier on that interface, then choose source names and the target
-baud rate. Merely rendering the selector does not open or probe any port.
+The supported setup path is:
+
+`Connect via USB / Serial -> Verify Monoprice amplifier -> Configure amplifier -> Complete`
+
+* **Connect via USB / Serial:** Uses Home Assistant's native serial-port selector, the same step Davis Vantage and Elk-M1 use. Manual paths and serial URLs remain available for containers and remote serial bridges. Opening the form does not open a port; only the submitted port is probed, and only after the verify step is confirmed. On Linux, `/dev/serial/by-id` is preferred, with `/dev/serial/by-path` as a fallback. Windows `COM*` paths remain supported.
+* **Verify Monoprice amplifier:** Opens only the selected port, asks the amplifier for its zone 11 status while detecting the baud rate, and closes the port before continuing. If the probe fails, the selector is shown again with the reason so you can pick the port again or choose a different one without restarting the flow.
+* **Configure amplifier:** Owns source names and the target link speed. The port, adapter identity, and detected baud remain config-entry data.
 
 If you are using a multi-port USB-to-Serial adapter (like a 4-port FTDI cable), **always select the path starting with `/dev/serial/by-id/...`**. 
 Linux frequently reassigns basic `/dev/ttyUSB0` paths when your server reboots. Using the `by-id` path guarantees the integration will always find the amplifier, even if you move the USB cable to a different port on your host machine.
@@ -145,7 +149,7 @@ The amplifier always powers on at 9600 baud. On first poll after startup the int
 
 ## 🔁 Reconfiguring
 
-If you move the amplifier to a different USB/serial port, use **Settings → Devices & Services → Monoprice → Reconfigure** instead of removing and re-adding the integration, it keeps your existing entities, automations, and history intact.
+If you move the amplifier to a different USB/serial port, use **Settings → Devices & Services → Monoprice → Reconfigure** instead of removing and re-adding the integration, it keeps your existing entities, automations, and history intact. Reconfigure uses the same selector and verifier as setup; when the adapter exposes a stable USB identity, a different adapter is rejected, and a failed probe leaves the existing entry untouched.
 
 ---
 

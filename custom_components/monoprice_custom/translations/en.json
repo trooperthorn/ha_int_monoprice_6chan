@@ -13,13 +13,14 @@
         },
         "step": {
             "user": {
+                "title": "Connect via USB / Serial",
+                "description": "Select one USB or serial port. Opening this form does not touch any port; only the selected port is opened, and only after you confirm the next step.",
                 "data": {
-                    "port": "Port"
-                },
-                "title": "Select serial interface"
+                    "port": "USB / Serial Port"
+                }
             },
             "verify": {
-                "description": "Verify the Monoprice amplifier connected to {port}. The selected interface will be opened briefly and closed after verification.",
+                "description": "Verify the Monoprice amplifier connected to {port}. Only this port is opened; the amplifier is asked for its zone 11 status while the baud rate is detected, and the port is closed again before you continue.",
                 "title": "Verify Monoprice amplifier"
             },
             "options": {
@@ -35,10 +36,11 @@
                 "title": "Configure amplifier"
             },
             "reconfigure": {
+                "title": "Reconfigure Monoprice amplifier",
+                "description": "Select one USB or serial port. Opening this form does not touch any port; only the selected port is opened, and only after you confirm the next step.",
                 "data": {
-                    "port": "Port"
-                },
-                "title": "Select serial interface"
+                    "port": "USB / Serial Port"
+                }
             },
             "reconfigure_options": {
                 "data": {
@@ -51,6 +53,13 @@
                     "baud_rate": "Target link speed (baud)"
                 },
                 "title": "Configure amplifier"
+            },
+            "interface": {
+                "title": "Connect via USB / Serial",
+                "description": "Verification failed on the previous port. Pick the port again, or choose a different one, and the next step will verify only that port.",
+                "data": {
+                    "port": "USB / Serial Port"
+                }
             }
         }
     },

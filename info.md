@@ -13,13 +13,13 @@
 * Click Download this repository with HACS
 * Restart Home Assistant
 * Go to Settings->Integrations->Add->Monoprice 6-Zone Amplifier Custom
-* Select the serial interface, verify the amplifier, then configure source names and target baud
+* Connect via USB / Serial (pick the port), verify the amplifier, then configure source names and target baud
 
 ### Manual
 * Add the monoprice_custom folder to your /config/custom_components folder
 * Restart Home Assistant
 * Go to Settings->Integrations->Add->Monoprice 6-Zone Amplifier Custom
-* Select the serial interface, verify the amplifier, then configure source names and target baud
+* Connect via USB / Serial (pick the port), verify the amplifier, then configure source names and target baud
 
 <b>Legacy-domain migration:</b> Releases through 2026.08.20 used the same
 <code>monoprice</code> domain as Home Assistant Core. Disable the existing

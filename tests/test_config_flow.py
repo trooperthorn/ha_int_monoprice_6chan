@@ -101,7 +101,69 @@ async def test_verify_reports_busy_and_wrong_devices(
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
 
     assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "interface"
     assert result["errors"] == {"base": translation_key}
+
+
+async def test_failed_verification_reprompts_for_a_port(hass) -> None:
+    """After a failure the selector is shown again and a new port can be verified."""
+    prepare = AsyncMock(side_effect=[CannotOpenPort(PORT), PREPARED])
+    with patch(
+        "custom_components.monoprice_custom.config_flow.async_prepare_endpoint",
+        prepare,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_PORT: "/dev/ttyUSB9"}
+        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["step_id"] == "interface"
+        assert result["errors"] == {"base": "cannot_connect"}
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_PORT: PORT}
+        )
+        assert result["step_id"] == "verify"
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["step_id"] == "options"
+
+    assert prepare.await_count == 2
+    assert prepare.await_args_list[1].args == (hass, PORT, None)
+
+
+async def test_reconfigure_failure_reprompts_and_keeps_entry(hass) -> None:
+    """A failed reconfigure probe re-shows the selector and touches nothing."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=2,
+        unique_id=IDENTITY.key,
+        data={CONF_PORT: "COM4", CONF_LAST_KNOWN_BAUD: 9600},
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.monoprice_custom.config_flow.async_prepare_endpoint",
+        AsyncMock(side_effect=NotMonopriceDevice(PORT)),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": entry.entry_id,
+            },
+        )
+        assert result["step_id"] == "reconfigure"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_PORT: PORT}
+        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "interface"
+    assert result["errors"] == {"base": "not_monoprice"}
+    assert entry.data[CONF_PORT] == "COM4"
 
 
 async def test_duplicate_identity_is_rejected(hass) -> None:
