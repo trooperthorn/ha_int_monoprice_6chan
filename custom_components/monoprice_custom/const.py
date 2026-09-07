@@ -19,6 +19,11 @@ PLATFORMS = [
 ]
 
 CONF_SOURCES = "sources"
+# Maps zone id (as a string key, e.g. "11") to a user-assigned room name. The
+# amplifier itself has no concept of a zone label - only a source label (see
+# CONF_SOURCE_1..6 and text.py's rename_source command) - so this can only
+# ever live in the config entry, never on the device.
+CONF_ZONE_NAMES = "zone_names"
 CONF_SOURCE_1 = "source_1"
 CONF_SOURCE_2 = "source_2"
 CONF_SOURCE_3 = "source_3"

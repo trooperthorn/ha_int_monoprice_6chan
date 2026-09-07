@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .__init__ import MonopriceConfigEntry
+from .const import CONF_ZONE_NAMES
 from .device import async_ensure_unit_devices, zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up Monoprice number entities from a config entry."""
     coordinator = entry.runtime_data.coordinator
+    zone_names = entry.options.get(CONF_ZONE_NAMES, {})
 
     known_units: set[int] = set()
 
@@ -39,7 +41,12 @@ async def async_setup_entry(
                 zone_id = unit * 10 + zone
                 entities.extend(
                     MonopriceZoneNumber(
-                        hass, coordinator, entry.entry_id, zone_id, control_type
+                        hass,
+                        coordinator,
+                        entry.entry_id,
+                        zone_id,
+                        control_type,
+                        zone_names,
                     )
                     for control_type in ("Balance", "Bass", "Treble")
                 )
@@ -70,6 +77,7 @@ class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
         entry_id: str,
         zone_id: int,
         control_type: str,
+        zone_names: dict[str, str] | None = None,
     ) -> None:
         """Initialize new zone number controls."""
         super().__init__(coordinator)
@@ -78,7 +86,10 @@ class MonopriceZoneNumber(CoordinatorEntity, NumberEntity):
 
         self._attr_unique_id = f"{entry_id}_{self._zone_id}_{self._control_type}"
         self._attr_name = f"{control_type} level"
-        self._attr_device_info = zone_device_info(hass, entry_id, self._zone_id)
+        custom_name = (zone_names or {}).get(str(zone_id))
+        self._attr_device_info = zone_device_info(
+            hass, entry_id, self._zone_id, custom_name
+        )
 
         if control_type == "Balance":
             # See docs/protocol.md for the 0-20 wire range.

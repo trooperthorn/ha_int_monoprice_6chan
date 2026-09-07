@@ -21,6 +21,7 @@ from custom_components.monoprice_custom.const import (
     CONF_LAST_KNOWN_BAUD,
     CONF_SOURCE_1,
     CONF_SOURCES,
+    CONF_ZONE_NAMES,
     DOMAIN,
 )
 from custom_components.monoprice_custom.serial import (
@@ -63,6 +64,10 @@ async def test_rendering_and_selection_do_not_touch_serial(hass) -> None:
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {CONF_SOURCE_1: "TV", CONF_BAUD_RATE: 38400}
         )
+        assert result["step_id"] == "zone_names"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"zone_11": "Kitchen"}
+        )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == {
@@ -74,6 +79,7 @@ async def test_rendering_and_selection_do_not_touch_serial(hass) -> None:
     assert result["options"] == {
         CONF_SOURCES: {"1": "TV"},
         CONF_BAUD_RATE: 38400,
+        CONF_ZONE_NAMES: {"11": "Kitchen"},
     }
 
 
@@ -226,6 +232,10 @@ async def test_reconfigure_preserves_unrelated_data_and_options(hass) -> None:
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {CONF_SOURCE_1: "TV", CONF_BAUD_RATE: 57600}
         )
+        assert result["step_id"] == "reconfigure_zone_names"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"zone_11": "Kitchen"}
+        )
 
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
@@ -233,6 +243,7 @@ async def test_reconfigure_preserves_unrelated_data_and_options(hass) -> None:
     assert entry.data[CONF_PORT] == PORT
     assert entry.options["unrelated_option"] == "keep"
     assert entry.options[CONF_BAUD_RATE] == 57600
+    assert entry.options[CONF_ZONE_NAMES] == {"11": "Kitchen"}
 
 
 async def test_options_change_preserves_unrelated_options(hass) -> None:
@@ -252,7 +263,12 @@ async def test_options_change_preserves_unrelated_options(hass) -> None:
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {CONF_SOURCE_1: "TV", CONF_BAUD_RATE: 115200}
     )
+    assert result["step_id"] == "zone_names"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"zone_11": "Kitchen"}
+    )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"]["unrelated_option"] == "keep"
     assert result["data"][CONF_BAUD_RATE] == 115200
+    assert result["data"][CONF_ZONE_NAMES] == {"11": "Kitchen"}

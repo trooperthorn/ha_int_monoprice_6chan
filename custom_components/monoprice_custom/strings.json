@@ -24,6 +24,30 @@
           "baud_rate": "Target link speed (baud)"
         }
       },
+      "zone_names": {
+        "title": "Name each zone's media player",
+        "description": "Optional. A blank field keeps that zone's default \"Zone N\" name; the amplifier itself has no way to store a room name, so this lives only in Home Assistant and can be changed later from Reconfigure or this integration's Configure option.",
+        "data": {
+          "zone_11": "Zone 11 room name",
+          "zone_12": "Zone 12 room name",
+          "zone_13": "Zone 13 room name",
+          "zone_14": "Zone 14 room name",
+          "zone_15": "Zone 15 room name",
+          "zone_16": "Zone 16 room name",
+          "zone_21": "Zone 21 room name",
+          "zone_22": "Zone 22 room name",
+          "zone_23": "Zone 23 room name",
+          "zone_24": "Zone 24 room name",
+          "zone_25": "Zone 25 room name",
+          "zone_26": "Zone 26 room name",
+          "zone_31": "Zone 31 room name",
+          "zone_32": "Zone 32 room name",
+          "zone_33": "Zone 33 room name",
+          "zone_34": "Zone 34 room name",
+          "zone_35": "Zone 35 room name",
+          "zone_36": "Zone 36 room name"
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure Monoprice amplifier",
         "description": "[%key:component::monoprice_custom::config::step::user::description%]",
@@ -41,6 +65,30 @@
           "source_5": "[%key:component::monoprice_custom::config::step::options::data::source_5%]",
           "source_6": "[%key:component::monoprice_custom::config::step::options::data::source_6%]",
           "baud_rate": "[%key:component::monoprice_custom::config::step::options::data::baud_rate%]"
+        }
+      },
+      "reconfigure_zone_names": {
+        "title": "[%key:component::monoprice_custom::config::step::zone_names::title%]",
+        "description": "[%key:component::monoprice_custom::config::step::zone_names::description%]",
+        "data": {
+          "zone_11": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_11%]",
+          "zone_12": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_12%]",
+          "zone_13": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_13%]",
+          "zone_14": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_14%]",
+          "zone_15": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_15%]",
+          "zone_16": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_16%]",
+          "zone_21": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_21%]",
+          "zone_22": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_22%]",
+          "zone_23": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_23%]",
+          "zone_24": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_24%]",
+          "zone_25": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_25%]",
+          "zone_26": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_26%]",
+          "zone_31": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_31%]",
+          "zone_32": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_32%]",
+          "zone_33": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_33%]",
+          "zone_34": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_34%]",
+          "zone_35": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_35%]",
+          "zone_36": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_36%]"
         }
       },
       "interface": {
@@ -75,6 +123,30 @@
           "source_5": "[%key:component::monoprice_custom::config::step::options::data::source_5%]",
           "source_6": "[%key:component::monoprice_custom::config::step::options::data::source_6%]",
           "baud_rate": "[%key:component::monoprice_custom::config::step::options::data::baud_rate%]"
+        }
+      },
+      "zone_names": {
+        "title": "[%key:component::monoprice_custom::config::step::zone_names::title%]",
+        "description": "[%key:component::monoprice_custom::config::step::zone_names::description%]",
+        "data": {
+          "zone_11": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_11%]",
+          "zone_12": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_12%]",
+          "zone_13": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_13%]",
+          "zone_14": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_14%]",
+          "zone_15": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_15%]",
+          "zone_16": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_16%]",
+          "zone_21": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_21%]",
+          "zone_22": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_22%]",
+          "zone_23": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_23%]",
+          "zone_24": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_24%]",
+          "zone_25": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_25%]",
+          "zone_26": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_26%]",
+          "zone_31": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_31%]",
+          "zone_32": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_32%]",
+          "zone_33": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_33%]",
+          "zone_34": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_34%]",
+          "zone_35": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_35%]",
+          "zone_36": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_36%]"
         }
       }
     }
