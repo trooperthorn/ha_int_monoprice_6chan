@@ -75,7 +75,7 @@ def _probe_zone(port: serialx.BaseSerial, zone: int) -> bool:
     port.flush()
     try:
         status = _read_zone_status(port)
-    except TimeoutError:
+    except (TimeoutError, EOFError):
         return False
     return status is not None and status.zone == zone
 
@@ -135,7 +135,7 @@ def validate_monoprice_endpoint(
             port.flush()
             try:
                 status = _read_zone_status(port)
-            except TimeoutError:
+            except (TimeoutError, EOFError):
                 continue
             if status is not None and status.zone == 11:
                 detected_units = _detect_expansion_units(port)
@@ -144,7 +144,7 @@ def validate_monoprice_endpoint(
                 )
 
         raise NotMonopriceDevice(port_url)
-    except TimeoutError as err:
+    except (TimeoutError, EOFError) as err:
         raise NotMonopriceDevice(port_url) from err
     except (serialx.SerialException, PermissionError, OSError) as err:
         raise CannotOpenPort(port_url) from err
