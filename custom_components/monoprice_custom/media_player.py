@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .__init__ import MonopriceConfigEntry
-from .const import CONF_SOURCES, CONF_ZONE_NAMES
+from .const import CONF_PORT, CONF_SOURCES, CONF_ZONE_NAMES
 from .device import async_ensure_unit_devices, zone_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up the Monoprice media player platform."""
     coordinator = entry.runtime_data.coordinator
+    port = entry.data[CONF_PORT]
     sources_data = entry.options if CONF_SOURCES in entry.options else entry.data
     sources = _get_sources_from_dict(sources_data)
     zone_names = entry.options.get(CONF_ZONE_NAMES, {})
@@ -52,22 +53,13 @@ async def async_setup_entry(
         async_ensure_unit_devices(hass, entry.entry_id, units)
         entities = []
         for unit in sorted(units):
-            entities.append(
-                MonopriceZone(
-                    hass, coordinator, entry.entry_id, unit * 10, sources, zone_names
+            for zone_id in (unit * 10, *(unit * 10 + zone for zone in range(1, 7))):
+                _LOGGER.debug("Adding zone %d for port %s", zone_id, port)
+                entities.append(
+                    MonopriceZone(
+                        hass, coordinator, entry.entry_id, zone_id, sources, zone_names
+                    )
                 )
-            )
-            entities.extend(
-                MonopriceZone(
-                    hass,
-                    coordinator,
-                    entry.entry_id,
-                    unit * 10 + zone,
-                    sources,
-                    zone_names,
-                )
-                for zone in range(1, 7)
-            )
         if entities:
             async_add_entities(entities)
             known_units.update(units)
