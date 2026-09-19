@@ -43,11 +43,13 @@ class FakeGateway:
     def __init__(self) -> None:
         self.last_known_baud = 9600
         self.last_detected_baud: int | None = None
+        self.proven_baud: int | None = None
+        self.failed_baud: int | None = None
         self.ensure_calls: list[int] = []
         self.present_units = {1}
         self.fail_with: Exception | None = None
 
-    async def async_ensure_link(self, target: int) -> int:
+    async def async_ensure_link(self, target: int, auto: bool = True) -> int:
         self.ensure_calls.append(target)
         self.last_known_baud = target
         return target
