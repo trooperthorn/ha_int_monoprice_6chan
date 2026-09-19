@@ -1,0 +1,81 @@
+name: Expansion unit report (we need these)
+description: Tell us what happened with two or three amplifiers chained
+labels: ["expansion-units"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The development hardware is a single 10761 with no expansion units, so
+        every code path that deals with a second or third amplifier is written
+        from the protocol documentation and has never met the hardware it
+        exists for. A report from you is the only way that changes, and a
+        report that it simply **works** is just as useful as one that it does
+        not.
+
+        What we cannot verify without you:
+
+        - whether a chained unit is reliably detected, or is sometimes read as
+          absent because it answered too slowly
+        - whether the one-second spacing before each probe is enough, too much,
+          or irrelevant
+        - whether a unit appearing later is picked up without a restart
+        - whether master (all-zone) commands behave the same on units 2 and 3
+
+        Please attach the **diagnostics file** (Settings → Devices & Services →
+        Monoprice → three dots → Download diagnostics). Its
+        `connection.expansion_probes` section records exactly what each probe
+        did, including how long it took and why a unit was ruled absent.
+
+  - type: dropdown
+    id: units
+    attributes:
+      label: How many amplifiers are chained
+      options:
+        - Two
+        - Three
+    validations:
+      required: true
+
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: What happened
+      options:
+        - All units and zones were detected correctly
+        - A unit was missed at setup but appeared later
+        - A unit is intermittently detected and then lost
+        - A unit is never detected
+        - Units detected, but something else is wrong
+    validations:
+      required: true
+
+  - type: textarea
+    id: detail
+    attributes:
+      label: Details
+      description: >
+        If a unit was missed, say whether it ever appeared, and how long after.
+        Rediscovery runs every five minutes and after any recovery.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics file
+      description: >
+        Especially the `connection.expansion_probes` and
+        `connection.active_units` sections.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log
+      description: >
+        Enable debug logging, wait for at least one rediscovery cycle (five
+        minutes), then disable it to download the log. Lines beginning
+        "Expansion probe" and "Expansion discovery finished" are the ones we
+        need.
+      render: text

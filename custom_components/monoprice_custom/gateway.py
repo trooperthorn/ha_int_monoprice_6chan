@@ -132,11 +132,17 @@ class MonopriceGateway:
     def _locate_sync(self, *preferred: int) -> int | None:
         """Return the rate the amplifier answers on, trying `preferred` first."""
         ordered = tuple(dict.fromkeys(preferred + SUPPORTED_BAUD_RATES))
+        tried: list[int] = []
         for candidate in ordered:
-            if candidate in SUPPORTED_BAUD_RATES and self.api.probe_baud_rate(
-                candidate
-            ):
+            if candidate not in SUPPORTED_BAUD_RATES:
+                continue
+            tried.append(candidate)
+            if self.api.probe_baud_rate(candidate):
+                _LOGGER.debug(
+                    "Amplifier answered at %d baud (tried %s)", candidate, tried
+                )
                 return candidate
+        _LOGGER.debug("No answer at any supported rate (tried %s)", tried)
         return None
 
     def _ceiling(self, target_baud: int) -> int:
@@ -190,6 +196,15 @@ class MonopriceGateway:
         self.last_detected_baud = detected_baud
 
         wanted = self._next_rate(detected_baud, target_baud, auto)
+        _LOGGER.debug(
+            "Link speed: found at %d, want %d (ceiling %d, %s, proven %s, failed %s)",
+            detected_baud,
+            wanted,
+            self._ceiling(target_baud),
+            "automatic" if auto else "manual",
+            self.proven_baud,
+            self.failed_baud,
+        )
         if wanted != detected_baud:
             if self.api.set_baud_rate(wanted):
                 self.proven_baud = max(wanted, self.proven_baud or 0)

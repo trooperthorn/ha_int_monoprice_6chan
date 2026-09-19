@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from time import monotonic
+from typing import Any
 
 import serialx
 from homeassistant.config_entries import ConfigEntry
@@ -94,6 +95,11 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
         self.last_outage_duration: timedelta | None = None
         self.last_outage_cause: str | None = None
         self.outage_count = 0
+        # Per-unit outcome of the last expansion probe, kept for the
+        # diagnostics download. This path cannot be exercised without
+        # expansion hardware, so a field report needs to say exactly what
+        # each probe did rather than only which units survived it.
+        self.last_discovery: list[dict[str, Any]] = []
         self.consecutive_failures = 0
         self.retry_delay: float | None = None
         self._baud_at_outage: int | None = None
@@ -154,22 +160,89 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
     async def _async_discover_active_units(self) -> None:
         """Rediscover expansion units at startup, after recovery, and periodically."""
         active = [1]
+        probe_log: list[dict[str, Any]] = []
         for unit in (2, 3):
             if unit == 3 and 2 not in active:
+                probe_log.append(
+                    {"unit": unit, "probed": False, "reason": "unit 2 absent"}
+                )
                 break
             # A timeout here means "absent", so give a slow unit room to answer
             # rather than dropping its entities until the next rediscovery.
             await asyncio.sleep(EXPANSION_PROBE_SPACING)
+            zone_id = unit * 10 + 1
+            started = monotonic()
             try:
-                status = await self.gateway.async_zone_status(unit * 10 + 1)
-            except _COMMUNICATION_ERRORS:
+                status = await self.gateway.async_zone_status(zone_id)
+            except _COMMUNICATION_ERRORS as err:
+                probe_log.append(
+                    {
+                        "unit": unit,
+                        "probed": True,
+                        "answered": False,
+                        "reason": f"{type(err).__name__}: {err}",
+                        "seconds": round(monotonic() - started, 2),
+                    }
+                )
+                _LOGGER.debug(
+                    "Expansion probe ?%d raised %s after %.2fs; treating unit %d "
+                    "as absent",
+                    zone_id,
+                    type(err).__name__,
+                    monotonic() - started,
+                    unit,
+                )
                 break
             if status is None:
+                probe_log.append(
+                    {
+                        "unit": unit,
+                        "probed": True,
+                        "answered": False,
+                        "reason": "reply did not parse as a zone status",
+                        "seconds": round(monotonic() - started, 2),
+                    }
+                )
+                _LOGGER.debug(
+                    "Expansion probe ?%d returned no parseable status after "
+                    "%.2fs; treating unit %d as absent",
+                    zone_id,
+                    monotonic() - started,
+                    unit,
+                )
                 break
+            probe_log.append(
+                {
+                    "unit": unit,
+                    "probed": True,
+                    "answered": True,
+                    "zone": getattr(status, "zone", None),
+                    "seconds": round(monotonic() - started, 2),
+                }
+            )
+            _LOGGER.debug(
+                "Expansion probe ?%d answered as zone %s in %.2fs; unit %d present",
+                zone_id,
+                getattr(status, "zone", None),
+                monotonic() - started,
+                unit,
+            )
             active.append(unit)
 
+        self.last_discovery = probe_log
+        _LOGGER.debug(
+            "Expansion discovery finished: units=%s probes=%s spacing=%ss",
+            active,
+            probe_log,
+            EXPANSION_PROBE_SPACING,
+        )
+
         if active != self.active_units:
-            _LOGGER.info("Detected Monoprice amplifier units: %s", active)
+            _LOGGER.info(
+                "Detected Monoprice amplifier units: %s (was %s)",
+                active,
+                self.active_units or "none yet",
+            )
             self.active_units = active
         self._next_expansion_discovery = (
             monotonic() + EXPANSION_DISCOVERY_INTERVAL.total_seconds()

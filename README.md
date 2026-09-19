@@ -454,6 +454,65 @@ which come from other implementations, is in
 
 ---
 
+## 🐞 Reporting a problem
+
+Two attachments make almost any report actionable, and both are a couple of
+clicks from the integration's page at **Settings → Devices & Services →
+Monoprice → the three dots**.
+
+**Download diagnostics** gives a JSON file with the connection state, current
+and target link speed, which units are active and what each expansion probe
+did, the outage history including whether the last one looked like a power cut
+or a cable fault, and every zone's state. Your serial port path and device
+identity are redacted, and no raw serial content is included.
+
+**Enable debug logging**, reproduce the problem, then **Disable debug logging**
+— Home Assistant downloads the log for you at that point. Debug output covers
+every baud-rate probe and the speed decision taken from it, each expansion-unit
+probe with its timing and why a unit was ruled present or absent, the outage
+lifecycle, and any trailing bytes drained from the serial port, which are the
+signature of a framing problem.
+
+It also turns on `pymonoprice`'s own logging, which records every command sent
+and every reply received as whole frames, so the raw protocol exchange ends up
+in the log without you doing anything.
+
+`serialx`, the layer beneath it, is deliberately **not** included: it logs one
+line per byte read, which turns a single zone query into about thirty lines and
+an ordinary poll into a couple of hundred. The useful detail is already in the
+`pymonoprice` frames. If a maintainer ever needs the byte level they will ask
+you to add it by hand under **Settings → Devices & Services → ⋮ → Logger**, or
+in `configuration.yaml`:
+
+```yaml
+logger:
+  logs:
+    serialx: debug
+```
+
+Open the issue with the [bug report
+template](.github/ISSUE_TEMPLATE/bug_report.yml), which asks for both.
+
+### If you have expansion units, we would especially like to hear from you
+
+The development hardware is a **single 10761 with no expansion units**. Every
+code path dealing with a second or third chained amplifier is written from the
+protocol documentation and has never run against the hardware it exists for.
+
+There is a [dedicated template](.github/ISSUE_TEMPLATE/expansion_units.yml) for
+this, and **a report that it simply works is as useful as one that it does
+not**. The open questions are whether a chained unit is reliably detected or
+occasionally read as absent for answering slowly, whether the one-second
+spacing before each probe is enough, whether a unit appearing later is picked
+up without a restart, and whether master commands behave the same on units 2
+and 3.
+
+The diagnostics file answers most of that on its own:
+`connection.expansion_probes` records each probe, how long it took, and the
+reason a unit was ruled absent.
+
+---
+
 ## 🧪 Testing
 
 The test suite covers wire framing, validation/identity, baud switching,

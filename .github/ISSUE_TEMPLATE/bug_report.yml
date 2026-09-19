@@ -1,0 +1,105 @@
+name: Bug report
+description: Something the integration does wrong, with the data needed to act on it
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two attachments make almost any report actionable. Please include both
+        if you can; the diagnostics file alone is often enough.
+
+        **Diagnostics** — Settings → Devices & Services → Monoprice → the three
+        dots → *Download diagnostics*. It carries the connection state, current
+        and target link speed, active units, expansion probe results, outage
+        history and every zone's state. Your serial port path and device
+        identity are redacted.
+
+        **Debug log** — on the same menu, *Enable debug logging*, reproduce the
+        problem, then *Disable debug logging*. Home Assistant downloads the log
+        automatically when you disable it.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what the integration did instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Amplifier model
+      description: >
+        This integration targets the Monoprice 10761 six-zone family and the
+        units that match it exactly (Dayton DAX66, Monoprice 39261, Soundavo
+        WS66i, generic clones). Four-zone and eight-zone relatives speak the
+        same commands but have different zone counts and are not supported.
+      placeholder: "Monoprice 10761"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: expansion
+    attributes:
+      label: Expansion units
+      description: >
+        How many amplifiers are chained together. **This matters more than it
+        looks**: the integration's expansion-unit discovery has never been
+        tested against real expansion hardware, so reports from multi-unit
+        installations are especially valuable to us.
+      options:
+        - One amplifier only
+        - Two amplifiers chained
+        - Three amplifiers chained
+    validations:
+      required: true
+
+  - type: input
+    id: connection
+    attributes:
+      label: How the amplifier is connected
+      placeholder: "USB serial adapter on /dev/serial/by-id/..., or socket://host:port via ser2net"
+    validations:
+      required: true
+
+  - type: input
+    id: link-speed
+    attributes:
+      label: Preferred maximum link speed, and whether automatic is enabled
+      placeholder: "19200, automatic on"
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics file
+      description: Drag the downloaded file in, or paste its contents.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log
+      description: >
+        The log downloaded when you disabled debug logging. Lines mentioning
+        `monoprice_custom`, `pymonoprice` or `serialx` are the relevant ones.
+      render: text
+
+  - type: input
+    id: versions
+    attributes:
+      label: Integration and Home Assistant versions
+      placeholder: "2026.09.19.3 on Home Assistant 2026.9.2"
+    validations:
+      required: true
