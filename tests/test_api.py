@@ -246,5 +246,49 @@ class TestRejectionHandling(unittest.TestCase):
         client._port.read.assert_called_once()
 
 
+class TestProbeSettle(unittest.TestCase):
+    """The probe must let the wake's reply land before clearing.
+
+    Without this, a probe on a freshly opened port fails at every rate even
+    though the amplifier is answering: the wake's reply is still arriving when
+    the buffer is cleared, so the status query reads it instead. Observed as
+    0/6 rates found on a fresh port, 8/8 after.
+    """
+
+    def _client(self):
+        client = object.__new__(api.MonopriceExtended)
+        client._lock = RLock()
+        return client
+
+    def test_settles_between_wake_and_query(self):
+        client = self._client()
+        manager = Mock()
+        client._port = SimpleNamespace(
+            baudrate=9600,
+            reset_input_buffer=manager.reset_input,
+            reset_output_buffer=manager.reset_output,
+        )
+        client._send_request = manager.wake
+        client.zone_status = Mock(return_value=SimpleNamespace(zone=11))
+
+        with patch.object(api, "sleep", manager.sleep):
+            self.assertTrue(client.probe_baud_rate(9600))
+
+        order = [name for name, _, _ in manager.mock_calls]
+        self.assertLess(order.index("wake"), order.index("sleep"))
+        # A clear after the settle is what actually discards the wake's reply.
+        self.assertGreater(
+            len([n for n in order[order.index("sleep") :] if n == "reset_input"]), 0
+        )
+        manager.sleep.assert_called_once_with(api.PROBE_SETTLE)
+
+    def test_unsupported_rate_is_rejected_before_touching_the_port(self):
+        client = self._client()
+        client._port = SimpleNamespace(baudrate=9600)
+        with self.assertRaises(ValueError):
+            client.probe_baud_rate(4800)
+        self.assertEqual(client._port.baudrate, 9600)
+
+
 if __name__ == "__main__":
     unittest.main()

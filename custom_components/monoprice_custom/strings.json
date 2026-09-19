@@ -172,6 +172,17 @@
           "connected": "Connected",
           "disconnected": "Disconnected"
         }
+      },
+      "link_speed": {
+        "name": "Link speed"
+      },
+      "last_disconnected": {
+        "name": "Last disconnected"
+      }
+    },
+    "binary_sensor": {
+      "connection": {
+        "name": "Connection"
       }
     }
   },

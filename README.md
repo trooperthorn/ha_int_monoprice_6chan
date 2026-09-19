@@ -60,6 +60,19 @@ For every active zone detected, this integration generates the following control
 ### Remote
 *   **RS232 Controller:** Sends any raw command from the [RS-232 spec](#-rs-232-protocol-coverage) directly, for commands not otherwise exposed as an entity. Also exposes the `set_baud_rate` action.
 
+### Diagnostics
+
+*   **Connection** (`binary_sensor`) - whether the amplifier is answering. Unlike
+    every other entity here it stays readable while the amplifier is down, so it
+    reports `Disconnected` rather than going unavailable, and can be used as an
+    automation trigger. Its attributes carry the outage history: when contact was
+    lost, how long the last outage lasted, how many there have been, the current
+    and detected link speeds, and how long until the next retry.
+*   **Link speed** (`sensor`) - the rate the serial link is actually running at,
+    in baud.
+*   **Last disconnected** (`sensor`) - a timestamp, so Home Assistant renders it
+    as "x minutes ago" and it can be graphed against other events.
+
 ### Sensors
 *   **Keypad Status (diagnostic):** Read-only, shows if the physical wall keypad for the zone is `Connected` or `Disconnected`.
 
@@ -172,7 +185,9 @@ want to force a known-good starting point:
 
 1. **Remove power from the amplifier for a full 30 seconds.** A quick
    off-and-on may not be enough; the controller has to fully discharge.
-2. Power it back on. It is now at **9600 baud**.
+2. Power it back on and give it about **10 seconds**. Measured on a 10761,
+   RS-232 starts answering roughly 8 seconds after power returns. It is now at
+   **9600 baud**.
 3. In Home Assistant, set the target link speed to **9600** under
    **Configure**, so the integration does not immediately negotiate away from
    the rate you just restored while you are diagnosing.
@@ -249,7 +264,7 @@ alongside the source names and target link speed.
 
 | Option | Range | Default | What it does |
 | --- | --- | --- | --- |
-| **Poll interval** | 5-60 s | 5 s | How often every zone is re-read. The amplifier never reports changes on its own, so this is the only way a keypad or front-panel change reaches Home Assistant. Raise it to put less traffic on a shared or bridged line. Each zone has a diagnostic **Keypad status** sensor: if every zone reads `disconnected`, keypad presses are not something you need to catch and a longer interval costs you little (the front panel still changes state out of band). |
+| **Poll interval** | 5-60 s | 5 s | How often every zone is re-read. The amplifier never reports changes on its own, so this is the only way a keypad or front-panel change reaches Home Assistant. Raise it to put less traffic on a shared or bridged line. This interval applies while the amplifier is answering; once it stops, retries back off automatically (5s, 10s, 20s ... up to 2 minutes) so a powered-off amplifier is not swept continuously, and reset to normal on the first success. Each zone has a diagnostic **Keypad status** sensor: if every zone reads `disconnected`, keypad presses are not something you need to catch and a longer interval costs you little (the front panel still changes state out of band). |
 | **Maximum volume** | 1-38 | 38 | Ceiling applied to every volume this integration sends, including master writes. Useful where the wire maximum is more than the speakers should take. |
 | **Volume on master power-on** | 0-38 | 0 (off) | When a master zone is switched on, force every zone it reaches to this volume first. Guards against six zones jumping to whatever the master was last set to. |
 | **Zones excluded from master commands** | any zones | none | Zones a master (all-zone) command must skip - a bathroom, an outdoor zone, a zone with no speakers. **Turning everything off is deliberately exempt** and still reaches every zone. |
@@ -331,6 +346,33 @@ broadcast happens inside the amplifier's firmware and cannot be filtered.
     input** on the back of the amplifier. The switch sends the documented
     command, reads the flag back, and raises an error when the amplifier ignores
     it, which it will. See Known Limitations.
+
+### Was it the power, or the serial cable?
+
+These look the same from Home Assistant, but the fix is completely different.
+The integration tells them apart automatically and reports which it thinks it
+was in the **Connection** sensor's `last_outage_cause` attribute and in the
+diagnostics download.
+
+It works because losing power resets the amplifier's link speed to 9600 while a
+cable problem does not:
+
+| Link was at | Came back at | Reported as | Means |
+| --- | --- | --- | --- |
+| Above 9600 | 9600 | `power_cycle` | The amplifier restarted. Nothing to fix. |
+| Above 9600 | The same rate | `link_fault` | The amplifier never lost power, so the cable, adapter or bridge dropped. Go and reseat it. |
+| 9600 | 9600 | `unknown` | Indistinguishable at the default rate. |
+
+**If you want this diagnosis, set the target link speed above 9600.** At the
+default both failures leave the amplifier at 9600 and there is nothing to tell
+them apart. Raising it costs nothing, since the rate is renegotiated
+automatically on every recovery, and it lowers latency as well.
+
+Other signals worth checking together with it. A power cycle brings the
+amplifier back on its own in well under a minute, and zone volumes and sources
+survive it unchanged. An outage that lasts minutes with nothing answering at any
+rate, and then clears the moment somebody touches the cable, was never a power
+event.
 
 ### Zone and entity oddities
 

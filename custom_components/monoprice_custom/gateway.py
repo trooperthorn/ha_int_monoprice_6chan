@@ -66,6 +66,10 @@ class MonopriceGateway:
         )
         self.failure_count = 0
         self.reconnect_count = 0
+        # The rate the amplifier was found on, before any negotiation moved
+        # it to the target. A power cycle resets the amplifier to 9600, so
+        # this is what tells a power event apart from a link fault.
+        self.last_detected_baud: int | None = None
         self._last_command_at = 0.0
 
     @property
@@ -143,6 +147,9 @@ class MonopriceGateway:
             raise serialx.SerialTimeoutException(
                 "No Monoprice response at any bounded recovery baud rate"
             )
+
+        # Record where it answered before negotiating away from it.
+        self.last_detected_baud = detected_baud
 
         if detected_baud != target_baud:
             if not self.api.set_baud_rate(target_baud):

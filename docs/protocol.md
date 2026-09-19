@@ -233,7 +233,8 @@ pyxantech's Monoprice file.
 | `<{baud}` is the command shape | Verified, and corroborated by jnewland/mpr-6zhmaut-api |
 | The six supported rates are 9600, 19200, 38400, 57600, 115200, 230400 | Verified at 9600/19200/38400/115200, corroborated for all six by jnewland/mpr-6zhmaut-api |
 | Connecting at the wrong rate does not lock the controller | Reported by jnewland/mpr-6zhmaut-api, not independently verified |
-| Power loss returns the controller to 9600; removing power for 30 seconds forces it | Reported by jnewland/mpr-6zhmaut-api, not independently verified |
+| Power loss returns the controller to 9600 | **Verified on a 10761**, twice |
+| The amplifier answers RS-232 about 8 seconds after power is restored | Verified, +/- 2s |
 
 See `api.py::MonopriceExtended.set_baud_rate`, which sends the command,
 switches the local port's rate, waits `BAUD_SETTLE` for the old-rate echo to
@@ -255,6 +256,50 @@ changes what the amplifier is set to.
 Over a `socket://` bridge none of this applies to the far side: changing
 `self._port.baudrate` moves only the local end, and the bridge's own fixed
 rate governs the wire to the amplifier.
+
+## Power cycling, and telling it apart from a bad cable
+
+Verified on a 10761 by cycling the mains supply. The amplifier was switched to
+19200, power was removed, and it came back answering at 9600 and at no other
+rate, with all six zones holding the volume, tone, balance and source they had
+before. A second cycle from 9600 behaved the same way.
+
+| Fact | Status |
+| --- | --- |
+| Removing power returns the link speed to 9600 | Verified twice |
+| Zone settings survive a power cycle unchanged | Verified |
+| RS-232 answers about 8 seconds after power returns | Verified; measured 48.2s across a held 40s outage, so 8.2s, +/- roughly 2s |
+
+The eight seconds is a self-timed measurement: a sampler on the wire recorded
+the last reply before power was cut and the first one after, so it does not
+depend on when anyone pressed anything. The remaining error is in the length of
+the hold, which was counted by hand, and in the roughly one second sampling
+interval.
+
+### Distinguishing a power event from a serial fault
+
+These two failures look identical from Home Assistant, and the difference
+matters: one is the amplifier restarting, the other is a connector to go and
+reseat. The link speed separates them, because power loss resets it and a cable
+problem does not.
+
+| Link was at | Found again at | Means |
+| --- | --- | --- |
+| Above 9600 | 9600 | The amplifier lost power |
+| Above 9600 | The same rate | The amplifier kept running; the link dropped |
+| 9600 | 9600 | Indistinguishable |
+
+`coordinator.py::_classify_outage` applies exactly this and reports
+`power_cycle`, `link_fault` or `unknown`. The last row is why it reports
+`unknown` rather than guessing: at the default rate both outages leave the
+amplifier at 9600. Running the link at 19200 or above buys a real diagnostic in
+exchange for nothing, since the rate is negotiated automatically on every
+recovery.
+
+The evidence for this came from a session where both failures happened in turn:
+a power cycle the amplifier recovered from on its own in 48 seconds, and a
+separate outage where it was unreachable for eight minutes at every rate until
+the serial cable was reseated.
 
 ## Keypad commands
 

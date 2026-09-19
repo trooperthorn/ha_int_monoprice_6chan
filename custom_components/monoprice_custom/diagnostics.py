@@ -51,6 +51,33 @@ async def async_get_config_entry_diagnostics(
             "last_poll_duration_seconds": coordinator.last_poll_duration,
             "failure_count": gateway.failure_count,
             "reconnect_count": gateway.reconnect_count,
+            # The rate the amplifier was found on before negotiation moved it.
+            # A power cycle resets it to 9600 and a link fault does not, so
+            # comparing this with the rate the link was on before the outage is
+            # what separates the two; see outage.suspected_cause.
+            "detected_baud": gateway.last_detected_baud,
+        },
+        "outage": {
+            "online": coordinator.is_online,
+            "offline_since": (
+                coordinator.offline_since.isoformat()
+                if coordinator.offline_since
+                else None
+            ),
+            "last_offline_at": (
+                coordinator.last_offline_at.isoformat()
+                if coordinator.last_offline_at
+                else None
+            ),
+            "last_outage_seconds": (
+                round(coordinator.last_outage_duration.total_seconds())
+                if coordinator.last_outage_duration
+                else None
+            ),
+            "suspected_cause": coordinator.last_outage_cause,
+            "outage_count": coordinator.outage_count,
+            "consecutive_failures": coordinator.consecutive_failures,
+            "retry_in_seconds": coordinator.retry_delay,
         },
         "zone_states": zone_data,
         "last_update_success": coordinator.last_update_success,
