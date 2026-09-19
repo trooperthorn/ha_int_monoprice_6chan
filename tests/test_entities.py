@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -13,9 +13,64 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.monoprice_custom.const import CONF_ZONE_NAMES, DOMAIN
 from custom_components.monoprice_custom.coordinator import MonopriceCoordinator
-from custom_components.monoprice_custom.number import async_setup_entry
+from custom_components.monoprice_custom.device import async_ensure_unit_devices
+from custom_components.monoprice_custom.number import (
+    EQ_WIRE_OFFSET,
+    MonopriceZoneNumber,
+    async_setup_entry,
+)
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
+
+
+@pytest.mark.parametrize(
+    ("control", "display", "wire"),
+    (
+        # Round-tripped on a 10761: these exact pairs were written and read
+        # back unchanged, and match the openHAB binding's toneOffset=7 and
+        # balOffset=10 for this family. See docs/protocol.md.
+        ("Bass", -7, 0),
+        ("Bass", 0, 7),
+        ("Bass", 7, 14),
+        ("Treble", -7, 0),
+        ("Treble", 7, 14),
+        ("Balance", -10, 0),
+        ("Balance", 0, 10),
+        ("Balance", 10, 20),
+    ),
+)
+async def test_eq_display_values_match_the_wire(
+    hass, control: str, display: int, wire: int
+) -> None:
+    """The offsets the user sees and the ones sent to the amplifier agree."""
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry.add_to_hass(hass)
+    gateway = SimpleNamespace(async_execute=AsyncMock())
+    coordinator = MonopriceCoordinator(hass, gateway, entry)
+    coordinator.active_units = [1]
+    # A zone's DeviceInfo resolves its parent unit by registry id, so the unit
+    # device has to exist first; see docs/design.md.
+    async_ensure_unit_devices(hass, entry.entry_id, {1})
+
+    number = MonopriceZoneNumber(hass, coordinator, entry.entry_id, 11, control)
+
+    # Reading: a wire value is shown as the signed display value.
+    field = {"Bass": "bass", "Treble": "treble", "Balance": "balance"}[control]
+    coordinator.data = {11: SimpleNamespace(**{field: wire})}
+    assert number.native_value == display
+
+    # Writing: the display value is translated back before it is sent.
+    coordinator.async_refresh_zone = AsyncMock()
+    await number.async_set_native_value(display)
+    method = {"Bass": "set_bass", "Treble": "set_treble", "Balance": "set_balance"}[
+        control
+    ]
+    gateway.async_execute.assert_awaited_once_with(method, 11, wire)
+
+
+def test_eq_offset_is_half_the_wire_range() -> None:
+    """A changed offset would silently misreport every tone value."""
+    assert EQ_WIRE_OFFSET == 7
 
 
 async def test_late_expansion_adds_entities_without_precreating_all_units(hass) -> None:

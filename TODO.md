@@ -3,10 +3,11 @@
 Research-only when written. Items checked off have since been applied; the
 rest are still flags for a human decision.
 
-As of 2026-09-19 every item in **A. Contradictions** and **B. Gaps in the
-current implementation** is closed, apart from one that cannot be closed here:
-B6's hardware question needs expansion units this bench does not have.
-Sections C, D and E remain open. Where an item contradicts a statement in
+As of 2026-09-19 every item in **A. Contradictions**, **B. Gaps in the current
+implementation** and **C. Edge cases** is closed, apart from one that cannot be
+closed here: B6's hardware question needs expansion units this bench does not
+have. Section D is reference material about other models, and its two
+actionable items are done; section E is closed. Where an item contradicts a statement in
 `docs/protocol.md` or behaviour in `custom_components/monoprice_custom/`,
 the contradiction is named explicitly rather than silently "fixed".
 
@@ -338,25 +339,34 @@ half. The permission half is missing, and `serial.py::_PORT_ERRORS` catches
   S1's `updateBaudRate.js` validates against exactly
   `[9600, 19200, 38400, 57600, 115200, 230400]`, matching
   `serial.py::SUPPORTED_BAUD_RATES`. Record the corroboration.
-- [ ] **Writes to a powered-off zone are silently discarded.** This is our own
-  hardware finding and **no other source mentions it** — not S1, S2, S3 or S6.
-  Flagging that it is unique to this repository's documentation and therefore
-  unconfirmed elsewhere, rather than contradicted.
-- [ ] **Keypad status is read-only.** S1 accepts `ls` on `GET /zones/:zone/:attribute`
-  but deliberately omits it from the `POST` list. S3 models it as a `Contact`.
-  `sensor.py::MonopriceKeypadSensor` already matches. The DAX88 manual gives
-  the encoding explicitly: `jj: Keypad Connection status (00: Not connected,
-  01: Connected)`.
-- [ ] **Balance/tone display conventions agree across implementations.**
-  S3 uses `minTone=-7, maxTone=+7, toneOffset=7` and `minBal=-10, maxBal=+10,
-  balOffset=10` for the Monoprice family, which is exactly the 0–14 and 0–20
-  wire ranges `number.py` translates. Record the independent confirmation in
-  `docs/protocol.md`'s EQ table.
-- [ ] **S2 parses status by fixed byte offsets**, not by regex
-  (power at 7–9, mute 9–11, volume 13–15, treble 15–17, bass 17–19, balance
-  19–21, source 21–23). It skips the `pa` and `dt` fields entirely. Mentioned
-  only as evidence of the field widths; it is the least reliable of the
-  sources and should not be used to settle anything.
+- [x] **Recorded as ours alone.** `docs/protocol.md` now states that no other
+  implementation documents this and none contradicts it either: S1, S2, S3 and
+  S6 simply do not mention the case. It rests on one bench observation and the
+  doc says so, so a future reader knows the difference between this and a fact
+  four sources agree on.
+- [x] **Done, and the claim about our code was checked rather than repeated.**
+  `sensor.py::MonopriceKeypadSensor` is a read-only diagnostic enum with no
+  setter, which does match S1's GET-without-POST and S3's `Contact`.
+  `docs/protocol.md` gains a section with the DAX88 encoding (`00` not
+  connected, `01` connected) and the corroboration.
+
+  Observed while checking: the bench amplifier reports `00` on all six zones.
+  Noted in the doc as a hint for choosing a poll interval, with the caveat that
+  "the amplifier sees no keypad" is not the same as "none are wired", and that
+  the front panel still changes state out of band.
+- [x] **Confirmed twice over.** `number.py` does apply S3's offsets exactly
+  (`EQ_WIRE_OFFSET = 7` for bass and treble, 10 for balance, with matching
+  display ranges). Beyond recording the cross-reference, each mapping was
+  round-tripped on the amplifier: bass -7/0/+7 wrote wire 0/7/14 and balance
+  -10/0/+10 wrote wire 0/10/20, all reading back unchanged. In
+  `docs/protocol.md`'s EQ section.
+- [x] **Recorded, with the weighting made explicit.** `docs/protocol.md` gains
+  an "On trusting these sources" table saying what each reference is good for
+  and what it is not: the Hubitat driver's byte offsets corroborate the field
+  widths and nothing else, and pyxantech's `protocols/monoprice.yaml` should
+  not be used for field order at all. That pairing matters more than either
+  item alone, since the two unreliable sources are unreliable in different
+  ways.
 
 ---
 
