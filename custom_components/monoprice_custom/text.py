@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from homeassistant.components.text import TextEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -52,14 +53,17 @@ class MonopriceKeypadText(CoordinatorEntity, TextEntity):
         """Send the renaming string to the RS232 port."""
         padded_value = value[:8]
 
-        if self._command_id == "M":
-            await self.coordinator.gateway.async_execute(
-                "set_keypad_message", padded_value
-            )
-        else:
-            await self.coordinator.gateway.async_execute(
-                "rename_source", self._command_id, padded_value
-            )
+        try:
+            if self._command_id == "M":
+                await self.coordinator.gateway.async_execute(
+                    "set_keypad_message", padded_value
+                )
+            else:
+                await self.coordinator.gateway.async_execute(
+                    "rename_source", self._command_id, padded_value
+                )
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
 
         self._attr_native_value = padded_value.strip()
         self.async_write_ha_state()

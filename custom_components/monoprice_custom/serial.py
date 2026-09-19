@@ -17,6 +17,24 @@ POWER_ON_BAUD_RATE: Final = 9600
 VALIDATION_TIMEOUT: Final = 0.75
 _COM_PORT = re.compile(r"^COM\d+$", re.IGNORECASE)
 
+# A character device that exists but cannot be configured as a UART - a
+# disabled Raspberry Pi console port, for instance - fails in termios, whose
+# error derives from Exception rather than OSError and so is caught by
+# neither serialx's nor the built-in handlers.
+try:
+    import termios
+
+    _TERMIOS_ERRORS: tuple[type[BaseException], ...] = (termios.error,)
+except ImportError:  # Windows COM ports raise OSError subclasses instead
+    _TERMIOS_ERRORS = ()
+
+_PORT_ERRORS: Final = (
+    serialx.SerialException,
+    PermissionError,
+    OSError,
+    *_TERMIOS_ERRORS,
+)
+
 
 class MonopriceValidationError(Exception):
     """Base class for a submitted serial endpoint validation failure."""
@@ -115,7 +133,7 @@ def validate_monoprice_endpoint(
             write_timeout=VALIDATION_TIMEOUT,
         )
         port.open()
-    except (serialx.SerialException, PermissionError, OSError) as err:
+    except _PORT_ERRORS as err:
         if port is not None and not port.closed:
             port.close()
         raise CannotOpenPort(port_url) from err
@@ -146,7 +164,7 @@ def validate_monoprice_endpoint(
         raise NotMonopriceDevice(port_url)
     except (TimeoutError, EOFError) as err:
         raise NotMonopriceDevice(port_url) from err
-    except (serialx.SerialException, PermissionError, OSError) as err:
+    except _PORT_ERRORS as err:
         raise CannotOpenPort(port_url) from err
     finally:
         if not port.closed:
