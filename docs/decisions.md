@@ -33,6 +33,36 @@ All six entity services register through `service.async_register_platform_entity
 so they exist before any platform loads (developer blog 2025-09-25). Rejected: the
 deprecated per-platform registration.
 
+## 2026-09-19, the configured link speed is a ceiling, and climbing to it is the default
+
+The amplifier changes speed on receipt and never acknowledges, so a speed the
+cabling cannot carry leaves it unreachable with no way to command it back: the
+only recovery is removing power for 30 seconds. That asymmetry means "pick the
+highest and see" is a trap rather than an experiment, and the previous
+behaviour walked straight into it by switching directly to whatever was
+configured and then raising on every subsequent poll.
+
+`CONF_AUTO_LINK_SPEED`, on by default, treats the configured value as a maximum
+and climbs one supported step per link-up. A speed confirmed on this cabling is
+recorded in the entry and returned to directly rather than re-climbed, and a
+speed that failed to confirm is recorded too and never attempted again. An
+unconfirmed switch now triggers a full search before the gateway gives up,
+because the amplifier having moved is not the same as the amplifier being
+unreachable, and when it truly is gone the error says to power cycle it rather
+than just reporting a timeout.
+
+Rejected: stepping down from the ceiling on failure, which cannot work. Once
+the switch has been sent the amplifier is already at the higher speed, so there
+is no way to negotiate downward if that speed is unusable. Climbing is the only
+direction that fails safe. Also rejected: making the checkbox default to off to
+preserve existing behaviour, since existing behaviour is the trap being fixed,
+and an entry configured for a speed that already works reaches it on the first
+link-up either way.
+
+The `set_baud_rate` service keeps the direct path regardless of the checkbox.
+Someone naming a speed in a service call means that speed, and the service is
+the right place to keep an escape hatch.
+
 ## 2026-09-19, failed polls back off, and the connectivity entity never hides
 
 Two decisions from the same problem: what the integration should do while the

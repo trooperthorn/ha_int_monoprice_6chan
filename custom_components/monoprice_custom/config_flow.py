@@ -16,6 +16,7 @@ from homeassistant.const import CONF_PORT
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -24,6 +25,7 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_ALL_ON_VOLUME,
+    CONF_AUTO_LINK_SPEED,
     CONF_BAUD_RATE,
     CONF_DEVICE_IDENTITY,
     CONF_IDENTITY_KIND,
@@ -40,6 +42,7 @@ from .const import (
     CONF_SOURCES,
     CONF_ZONE_NAMES,
     DEFAULT_ALL_ON_VOLUME,
+    DEFAULT_AUTO_LINK_SPEED,
     DEFAULT_MAX_VOLUME,
     DEFAULT_POLL_INTERVAL,
     DOMAIN,
@@ -130,6 +133,12 @@ def _options_schema(
     )
     fields[
         vol.Required(
+            CONF_AUTO_LINK_SPEED,
+            default=previous.get(CONF_AUTO_LINK_SPEED, DEFAULT_AUTO_LINK_SPEED),
+        )
+    ] = BooleanSelector()
+    fields[
+        vol.Required(
             CONF_POLL_INTERVAL,
             default=previous.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
         )
@@ -149,9 +158,12 @@ def _options_schema(
     return vol.Schema(fields)
 
 
-def _behaviour_from_config(data: dict[str, Any]) -> dict[str, int]:
+def _behaviour_from_config(data: dict[str, Any]) -> dict[str, Any]:
     """Pull the numeric behaviour settings out of a submitted options form."""
     return {
+        CONF_AUTO_LINK_SPEED: bool(
+            data.pop(CONF_AUTO_LINK_SPEED, DEFAULT_AUTO_LINK_SPEED)
+        ),
         CONF_POLL_INTERVAL: int(data.pop(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)),
         CONF_MAX_VOLUME: int(data.pop(CONF_MAX_VOLUME, DEFAULT_MAX_VOLUME)),
         CONF_ALL_ON_VOLUME: int(data.pop(CONF_ALL_ON_VOLUME, DEFAULT_ALL_ON_VOLUME)),

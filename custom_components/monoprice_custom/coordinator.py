@@ -15,9 +15,13 @@ from pymonoprice import ZoneStatus
 
 from .api import MonopriceCommandError
 from .const import (
+    CONF_AUTO_LINK_SPEED,
     CONF_BAUD_RATE,
+    CONF_FAILED_BAUD,
     CONF_LAST_KNOWN_BAUD,
     CONF_POLL_INTERVAL,
+    CONF_PROVEN_BAUD,
+    DEFAULT_AUTO_LINK_SPEED,
     DEFAULT_POLL_INTERVAL,
     MAX_POLL_INTERVAL,
     MIN_POLL_INTERVAL,
@@ -103,6 +107,13 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
         )
 
     @property
+    def auto_link_speed(self) -> bool:
+        """Whether the integration works up to the configured rate itself."""
+        return bool(
+            self.entry.options.get(CONF_AUTO_LINK_SPEED, DEFAULT_AUTO_LINK_SPEED)
+        )
+
+    @property
     def target_baud_rate(self) -> int:
         """Return the configured target link speed."""
         configured = self.entry.options.get(CONF_BAUD_RATE, DEFAULT_TARGET_BAUD)
@@ -113,21 +124,31 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
         )
 
     async def _async_ensure_link(self) -> None:
-        """Run bounded recovery and target-baud negotiation when required."""
+        """Run bounded recovery and link-speed negotiation when required."""
         if self._link_ready:
             return
         previous_baud = self.gateway.last_known_baud
-        detected_baud = await self.gateway.async_ensure_link(self.target_baud_rate)
+        # Seed what the hardware taught us last time, so a rate already proven
+        # is returned to directly and one that failed is never retried.
+        self.gateway.proven_baud = self.entry.data.get(CONF_PROVEN_BAUD)
+        self.gateway.failed_baud = self.entry.data.get(CONF_FAILED_BAUD)
+
+        detected_baud = await self.gateway.async_ensure_link(
+            self.target_baud_rate, self.auto_link_speed
+        )
         self._link_ready = True
         self._next_expansion_discovery = 0.0
 
-        if (
-            detected_baud != previous_baud
-            or self.entry.data.get(CONF_LAST_KNOWN_BAUD) != detected_baud
+        learned = {
+            CONF_LAST_KNOWN_BAUD: detected_baud,
+            CONF_PROVEN_BAUD: self.gateway.proven_baud,
+            CONF_FAILED_BAUD: self.gateway.failed_baud,
+        }
+        if detected_baud != previous_baud or any(
+            self.entry.data.get(key) != value for key, value in learned.items()
         ):
             self.hass.config_entries.async_update_entry(
-                self.entry,
-                data={**self.entry.data, CONF_LAST_KNOWN_BAUD: detected_baud},
+                self.entry, data={**self.entry.data, **learned}
             )
 
     async def _async_discover_active_units(self) -> None:

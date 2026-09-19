@@ -44,8 +44,13 @@ class MonopriceRemote(CoordinatorEntity, RemoteEntity):
             await self.coordinator.gateway.async_execute("send_raw", cmd)
 
     async def async_set_baud_rate(self, baud_rate: int) -> None:
-        """Negotiate the amplifier and local port to a new link speed."""
-        await self.coordinator.gateway.async_ensure_link(baud_rate)
+        """Negotiate the amplifier and local port to a new link speed.
+
+        Called explicitly, so it goes to the requested rate directly rather
+        than climbing toward it: someone naming a rate in a service call means
+        that rate, not a ceiling.
+        """
+        await self.coordinator.gateway.async_ensure_link(baud_rate, auto=False)
         self.hass.config_entries.async_update_entry(
             self.coordinator.entry,
             options={

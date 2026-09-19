@@ -27,6 +27,7 @@ except ModuleNotFoundError:
     ha_core.HomeAssistant = object
 
 gateway_module = importlib.import_module("monoprice_custom.gateway")
+serialx = gateway_module.serialx
 
 
 class FakeHass:
@@ -128,15 +129,27 @@ class TestGatewayLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(api.maximum_active, 1)
 
     async def test_recovery_probes_9600_before_negotiating_target(self) -> None:
+        # auto=False is the direct path: go to the requested rate in one move.
         api = RecoveryApi()
         gateway = gateway_module.MonopriceGateway(FakeHass(), api, 57600)
 
-        baud = await gateway.async_ensure_link(38400)
+        baud = await gateway.async_ensure_link(38400, auto=False)
 
         self.assertEqual(baud, 38400)
         self.assertEqual(api.probes, [9600])
         self.assertEqual(api.switches, [38400])
         self.assertEqual(gateway.reconnect_count, 1)
+
+    async def test_recovery_climbs_one_step_when_automatic(self) -> None:
+        # Same starting point, automatic: one step up from where it was found,
+        # not a leap to the ceiling.
+        api = RecoveryApi()
+        gateway = gateway_module.MonopriceGateway(FakeHass(), api, 57600)
+
+        baud = await gateway.async_ensure_link(38400, auto=True)
+
+        self.assertEqual(baud, 19200)
+        self.assertEqual(api.switches, [19200])
 
 
 class TestCommandFloor(unittest.IsolatedAsyncioTestCase):
@@ -183,6 +196,114 @@ class TestCommandFloor(unittest.IsolatedAsyncioTestCase):
             await gateway._async_locked_call(api.noop)
             elapsed = time.monotonic() - started
         self.assertGreaterEqual(elapsed, 0.05)
+
+
+class TestLinkSpeedNegotiation(unittest.TestCase):
+    """The configured rate is a ceiling to climb to, not one to leap at.
+
+    The amplifier changes speed on receipt and never acknowledges, so a rate
+    the wiring cannot carry leaves it unreachable until it loses power. That
+    asymmetry is why automatic mode climbs one step at a time and why a rate
+    that failed is never tried again.
+    """
+
+    @staticmethod
+    def _gateway():
+        api = SimpleNamespace(current_baud_rate=9600)
+        return gateway_module.MonopriceGateway(FakeHass(), api)
+
+    def test_automatic_mode_climbs_one_step(self):
+        gw = self._gateway()
+        self.assertEqual(gw._next_rate(9600, 230400, auto=True), 19200)
+        self.assertEqual(gw._next_rate(19200, 230400, auto=True), 38400)
+        self.assertEqual(gw._next_rate(115200, 230400, auto=True), 230400)
+
+    def test_automatic_mode_stops_at_the_ceiling(self):
+        gw = self._gateway()
+        self.assertEqual(gw._next_rate(9600, 19200, auto=True), 19200)
+        self.assertEqual(gw._next_rate(19200, 19200, auto=True), 19200)
+        # Already above what was asked for: do not climb further.
+        self.assertEqual(gw._next_rate(38400, 19200, auto=True), 19200)
+
+    def test_manual_mode_goes_straight_there(self):
+        # Someone who picked a rate means that rate, trap and all.
+        gw = self._gateway()
+        self.assertEqual(gw._next_rate(9600, 230400, auto=False), 230400)
+
+    def test_a_proven_rate_is_returned_to_directly(self):
+        # Climbing one step per link-up would take four polls to get back to a
+        # rate already known to work on this cabling.
+        gw = self._gateway()
+        gw.proven_baud = 115200
+        self.assertEqual(gw._next_rate(9600, 230400, auto=True), 115200)
+
+    def test_a_failed_rate_caps_everything_below_it(self):
+        gw = self._gateway()
+        gw.failed_baud = 115200
+        self.assertEqual(gw._ceiling(230400), 57600)
+        self.assertEqual(gw._next_rate(57600, 230400, auto=True), 57600)
+
+    def test_a_proven_rate_never_exceeds_a_failed_one(self):
+        gw = self._gateway()
+        gw.proven_baud = 115200
+        gw.failed_baud = 38400
+        self.assertEqual(gw._next_rate(9600, 230400, auto=True), 19200)
+
+    def test_failing_at_9600_leaves_nothing_to_fall_back_to(self):
+        gw = self._gateway()
+        gw.failed_baud = 9600
+        self.assertEqual(gw._ceiling(230400), 9600)
+
+
+class TestFailedSwitchRecovery(unittest.IsolatedAsyncioTestCase):
+    """A switch that is not confirmed must be searched for, not abandoned."""
+
+    @staticmethod
+    def _gateway(*, confirms: bool, reachable_after: int | None):
+        """Model an amplifier that really does change speed on receipt.
+
+        `confirms` is whether the switch is acknowledged; `reachable_after` is
+        the rate it can actually be reached at once it has moved, or None when
+        the wiring cannot carry the new speed at all.
+        """
+        state = {"at": 9600}
+
+        def set_baud_rate(baud):
+            state["at"] = reachable_after
+            return confirms
+
+        api = SimpleNamespace(
+            current_baud_rate=9600,
+            probe_baud_rate=lambda b: b == state["at"],
+            set_baud_rate=set_baud_rate,
+        )
+        return gateway_module.MonopriceGateway(FakeHass(), api), api
+
+    async def test_an_unconfirmed_switch_relocates_the_amplifier(self):
+        # The amplifier did move and is reachable there; the confirmation was
+        # simply unlucky, so the link is fine.
+        gw, _ = self._gateway(confirms=False, reachable_after=19200)
+        baud = await gw.async_ensure_link(19200, auto=True)
+        self.assertEqual(baud, 19200)
+        self.assertEqual(gw.failed_baud, 19200, "recorded, so it is not retried")
+
+    async def test_an_unreachable_amplifier_says_how_to_recover(self):
+        # The wiring cannot carry the new speed, so the amplifier is gone until
+        # it loses power. The error has to say that, not just "timed out".
+        gw, _ = self._gateway(confirms=False, reachable_after=None)
+        with self.assertRaises(serialx.SerialTimeoutException) as caught:
+            await gw.async_ensure_link(19200, auto=True)
+        message = str(caught.exception)
+        self.assertIn("30 seconds", message)
+        self.assertIn("9600", message)
+        self.assertEqual(gw.failed_baud, 19200)
+
+    async def test_a_confirmed_switch_is_remembered_as_proven(self):
+        gw, _ = self._gateway(confirms=True, reachable_after=19200)
+        baud = await gw.async_ensure_link(19200, auto=True)
+        self.assertEqual(baud, 19200)
+        self.assertEqual(gw.proven_baud, 19200)
+        self.assertIsNone(gw.failed_baud)
 
 
 if __name__ == "__main__":

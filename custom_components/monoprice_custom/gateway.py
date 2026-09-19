@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from enum import StrEnum
 from time import monotonic
@@ -15,6 +16,7 @@ from pymonoprice import ZoneStatus
 from .api import MonopriceExtended
 from .serial import POWER_ON_BAUD_RATE, SUPPORTED_BAUD_RATES
 
+_LOGGER = logging.getLogger(__name__)
 _T = TypeVar("_T")
 # Floor between consecutive RS-232 commands. pyxantech sets this on every
 # series it supports and enforces it with an explicit sleep, to stop the
@@ -70,6 +72,11 @@ class MonopriceGateway:
         # it to the target. A power cycle resets the amplifier to 9600, so
         # this is what tells a power event apart from a link fault.
         self.last_detected_baud: int | None = None
+        # Learned from the hardware: the highest rate confirmed on this
+        # cabling, and the lowest that failed to confirm. Seeded from the
+        # config entry and written back by the coordinator.
+        self.proven_baud: int | None = None
+        self.failed_baud: int | None = None
         self._last_command_at = 0.0
 
     @property
@@ -122,27 +129,58 @@ class MonopriceGateway:
         """Send the wake sequence through the same serialized path."""
         await self._async_locked_call(self.api.wake)
 
-    def _ensure_link_sync(self, target_baud: int) -> tuple[int, bool]:
-        """Synchronously find the amplifier rate and negotiate the target."""
-        initial_baud = self.api.current_baud_rate
-        candidates = tuple(
-            dict.fromkeys(
-                (
-                    POWER_ON_BAUD_RATE,
-                    self.last_known_baud,
-                    target_baud,
-                    initial_baud,
-                )
-            )
-        )
-        detected_baud: int | None = None
-        for candidate in candidates:
+    def _locate_sync(self, *preferred: int) -> int | None:
+        """Return the rate the amplifier answers on, trying `preferred` first."""
+        ordered = tuple(dict.fromkeys(preferred + SUPPORTED_BAUD_RATES))
+        for candidate in ordered:
             if candidate in SUPPORTED_BAUD_RATES and self.api.probe_baud_rate(
                 candidate
             ):
-                detected_baud = candidate
-                break
+                return candidate
+        return None
 
+    def _ceiling(self, target_baud: int) -> int:
+        """Return the highest rate worth attempting on this cabling.
+
+        A rate that once failed to confirm is not tried again: the amplifier
+        switches on receipt, so a rate the wiring cannot carry leaves it
+        unreachable until it loses power. Having learned that once is enough.
+        """
+        ceiling = target_baud
+        if self.failed_baud is not None:
+            usable = [b for b in SUPPORTED_BAUD_RATES if b < self.failed_baud]
+            ceiling = min(ceiling, usable[-1] if usable else POWER_ON_BAUD_RATE)
+        return ceiling
+
+    def _next_rate(self, detected_baud: int, target_baud: int, auto: bool) -> int:
+        """Return the rate to move to from `detected_baud`.
+
+        Manual mode goes straight to the configured rate, which is what a user
+        who has chosen one expects. Automatic mode treats it as a ceiling and
+        climbs one supported step per link-up, except that a rate already
+        proven on this cabling can be returned to directly, since it is known
+        to work.
+        """
+        if not auto:
+            return target_baud
+
+        ceiling = self._ceiling(target_baud)
+        if detected_baud >= ceiling:
+            return ceiling
+        if self.proven_baud is not None and detected_baud < self.proven_baud:
+            return min(self.proven_baud, ceiling)
+
+        higher = [b for b in SUPPORTED_BAUD_RATES if b > detected_baud]
+        return min(higher[0], ceiling) if higher else ceiling
+
+    def _ensure_link_sync(
+        self, target_baud: int, auto: bool = True
+    ) -> tuple[int, bool]:
+        """Find the amplifier, then move one step toward the wanted rate."""
+        initial_baud = self.api.current_baud_rate
+        detected_baud = self._locate_sync(
+            POWER_ON_BAUD_RATE, self.last_known_baud, target_baud, initial_baud
+        )
         if detected_baud is None:
             raise serialx.SerialTimeoutException(
                 "No Monoprice response at any bounded recovery baud rate"
@@ -151,22 +189,45 @@ class MonopriceGateway:
         # Record where it answered before negotiating away from it.
         self.last_detected_baud = detected_baud
 
-        if detected_baud != target_baud:
-            if not self.api.set_baud_rate(target_baud):
-                raise serialx.SerialTimeoutException(
-                    f"Monoprice did not confirm target baud rate {target_baud}"
+        wanted = self._next_rate(detected_baud, target_baud, auto)
+        if wanted != detected_baud:
+            if self.api.set_baud_rate(wanted):
+                self.proven_baud = max(wanted, self.proven_baud or 0)
+                detected_baud = wanted
+            else:
+                # The amplifier switched on receipt whether or not it answered,
+                # so it is now at `wanted` and this end is not. Look for it
+                # before giving up: an unlucky confirmation is recoverable, a
+                # rate the wiring cannot carry is not.
+                self.failed_baud = wanted
+                _LOGGER.warning(
+                    "Monoprice did not confirm %d baud; it will not be tried "
+                    "again on this connection",
+                    wanted,
                 )
-            detected_baud = target_baud
+                relocated = self._locate_sync(wanted)
+                if relocated is None:
+                    raise serialx.SerialTimeoutException(
+                        f"Monoprice did not confirm {wanted} baud and cannot be "
+                        "found at any supported rate. Remove power from the "
+                        "amplifier for 30 seconds to return it to "
+                        f"{POWER_ON_BAUD_RATE} baud."
+                    )
+                detected_baud = relocated
 
         return detected_baud, initial_baud != detected_baud
 
-    async def async_ensure_link(self, target_baud: int) -> int:
-        """Recover at 9600 first, then negotiate a supported target rate."""
+    async def async_ensure_link(self, target_baud: int, auto: bool = True) -> int:
+        """Recover at 9600 first, then move toward the wanted rate.
+
+        `auto` treats `target_baud` as a ceiling to climb toward rather than a
+        rate to insist on; see `_next_rate`.
+        """
         if target_baud not in SUPPORTED_BAUD_RATES:
             raise ValueError(f"Unsupported baud rate: {target_baud}")
         self.connection_state = ConnectionState.RECOVERING
         baud, changed = await self._async_locked_call(
-            self._ensure_link_sync, target_baud
+            self._ensure_link_sync, target_baud, auto
         )
         self.last_known_baud = baud
         if changed:

@@ -21,10 +21,14 @@
           "source_4": "Name of source #4",
           "source_5": "Name of source #5",
           "source_6": "Name of source #6",
-          "baud_rate": "Target link speed (baud)",
+          "baud_rate": "Preferred maximum link speed (baud)",
           "poll_interval": "Poll interval (seconds)",
           "max_volume": "Maximum volume (0-38)",
-          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)"
+          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)",
+          "auto_link_speed": "Let the integration work up to it automatically"
+        },
+        "data_description": {
+          "baud_rate": "The amplifier always powers on at 9600 baud, so this is the speed to work up to, not the one the connection starts at. A higher speed lowers command latency but is less tolerant of long or noisy RS-232 runs.\n\nLeave the checkbox on unless you have a reason not to. The integration then raises the speed one step at a time, confirming each, remembers the highest that worked on your cabling, and never retries one that failed. Turned off, it switches straight to the speed you picked: if the wiring cannot carry it the amplifier still changes speed on receipt and becomes unreachable until you remove its power for 30 seconds."
         }
       },
       "zone_names": {
@@ -71,7 +75,11 @@
           "baud_rate": "[%key:component::monoprice_custom::config::step::options::data::baud_rate%]",
           "poll_interval": "Poll interval (seconds)",
           "max_volume": "Maximum volume (0-38)",
-          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)"
+          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)",
+          "auto_link_speed": "Let the integration work up to it automatically"
+        },
+        "data_description": {
+          "baud_rate": "The amplifier always powers on at 9600 baud, so this is the speed to work up to, not the one the connection starts at. A higher speed lowers command latency but is less tolerant of long or noisy RS-232 runs.\n\nLeave the checkbox on unless you have a reason not to. The integration then raises the speed one step at a time, confirming each, remembers the highest that worked on your cabling, and never retries one that failed. Turned off, it switches straight to the speed you picked: if the wiring cannot carry it the amplifier still changes speed on receipt and becomes unreachable until you remove its power for 30 seconds."
         }
       },
       "reconfigure_zone_names": {
@@ -134,7 +142,11 @@
           "baud_rate": "[%key:component::monoprice_custom::config::step::options::data::baud_rate%]",
           "poll_interval": "Poll interval (seconds)",
           "max_volume": "Maximum volume (0-38)",
-          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)"
+          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)",
+          "auto_link_speed": "Let the integration work up to it automatically"
+        },
+        "data_description": {
+          "baud_rate": "The amplifier always powers on at 9600 baud, so this is the speed to work up to, not the one the connection starts at. A higher speed lowers command latency but is less tolerant of long or noisy RS-232 runs.\n\nLeave the checkbox on unless you have a reason not to. The integration then raises the speed one step at a time, confirming each, remembers the highest that worked on your cabling, and never retries one that failed. Turned off, it switches straight to the speed you picked: if the wiring cannot carry it the amplifier still changes speed on receipt and becomes unreachable until you remove its power for 30 seconds."
         }
       },
       "zone_names": {
