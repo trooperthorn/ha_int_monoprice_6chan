@@ -13,12 +13,25 @@ from __future__ import annotations
 
 import logging
 from threading import RLock
+from time import sleep
+from typing import Final
 
 from pymonoprice import Monoprice, synchronized
 
 from .serial import SUPPORTED_BAUD_RATES
 
 _LOGGER = logging.getLogger(__name__)
+
+# The keypad display strings are a fixed 8 ASCII characters.
+NAME_LENGTH: Final = 8
+SOURCE_INDEXES: Final = range(1, 7)
+# A query and the "Done."/"Command Error." acknowledgements are both framed
+# as two EOL sequences, unlike a control command's single one; see
+# docs/protocol.md.
+REPLY_EOLS: Final = 2
+# How long to wait for any frames beyond the first when the reply length is
+# not known ahead of the send, as with send_raw.
+DRAIN_SETTLE: Final = 0.15
 
 
 def _format_set_pa(zone: int, pa: bool) -> bytes:
@@ -43,6 +56,21 @@ def _format_set_baud_rate(baud: int) -> bytes:
 
 def _format_zone_field_status(zone: int, field: str) -> bytes:
     return f"?{zone}{field}\r".encode()
+
+
+def _display_name(name: str) -> str:
+    """Pad or truncate to the hardware's 8 ASCII characters.
+
+    The amplifier accepts only 7-bit ASCII here. Encoding a non-ASCII name
+    would raise ``UnicodeEncodeError`` from deep inside the formatter, so it
+    is rejected up front as a value error the caller can translate.
+    """
+    padded = name[:NAME_LENGTH].ljust(NAME_LENGTH)
+    try:
+        padded.encode("ascii")
+    except UnicodeEncodeError as err:
+        raise ValueError(f"Keypad text must be ASCII only, got {name!r}") from err
+    return padded
 
 
 class MonopriceExtended(Monoprice):
@@ -89,19 +117,44 @@ class MonopriceExtended(Monoprice):
         """Turn the zone's do-not-disturb (DT) flag on or off."""
         self._process_request(_format_set_dnd(zone, dnd))
 
+    def _read_pending(self) -> str:
+        """Return any frames the amplifier sent beyond the ones already read.
+
+        A control command answers with one EOL frame, a query or a
+        "Done."/"Command Error." acknowledgement with two, and `?N0` with one
+        per zone, so an arbitrary command's reply length is not known before
+        it is sent. Draining keeps a leftover frame from being read as the
+        answer to whatever is sent next.
+        """
+        sleep(DRAIN_SETTLE)
+        pending = self._port.in_waiting
+        if not pending:
+            return ""
+        return self._port.read(pending).decode("ascii", errors="replace")
+
     @synchronized
     def rename_source(self, index: int, name: str) -> None:
         """Rename source `index` (1-6) on the keypad displays.
 
         `name` is padded/truncated to the 8 ASCII characters the hardware
-        requires.
+        requires. An index outside 1-6 is rejected here rather than sent: the
+        amplifier answers it with "Command Error." and that reply would be
+        read as the answer to the next command.
         """
-        self._process_request(_format_rename_source(index, name.ljust(8)))
+        if index not in SOURCE_INDEXES:
+            raise ValueError(f"Source index must be 1-6, got {index}")
+        self._process_request(
+            _format_rename_source(index, _display_name(name)),
+            num_eols_to_read=REPLY_EOLS,
+        )
 
     @synchronized
     def set_keypad_message(self, name: str) -> None:
         """Set the boot welcome message shown on zone keypads."""
-        self._process_request(_format_set_keypad_message(name.ljust(8)))
+        self._process_request(
+            _format_set_keypad_message(_display_name(name)),
+            num_eols_to_read=REPLY_EOLS,
+        )
 
     @synchronized
     def zone_field_status(self, zone: int, field: str) -> str:
@@ -111,14 +164,26 @@ class MonopriceExtended(Monoprice):
         lowering the latency between an on-amp change and its reflection
         in Home Assistant.
         """
-        return self._process_request(_format_zone_field_status(zone, field))
+        return self._process_request(
+            _format_zone_field_status(zone, field), num_eols_to_read=REPLY_EOLS
+        )
 
     @synchronized
     def send_raw(self, command: str) -> str:
-        """Send an arbitrary already-formatted command, locked against polling."""
+        """Send an arbitrary already-formatted command, locked against polling.
+
+        The caller chooses the command, so the reply's frame count is unknown:
+        read the first frame, then drain whatever else arrives.
+        """
         if not command.endswith("\r"):
             command += "\r"
-        return self._process_request(command.encode("ascii"))
+        try:
+            encoded = command.encode("ascii")
+        except UnicodeEncodeError as err:
+            raise ValueError(
+                f"RS-232 commands must be ASCII only, got {command!r}"
+            ) from err
+        return self._process_request(encoded) + self._read_pending()
 
     @synchronized
     def set_baud_rate(self, baud: int) -> bool:

@@ -139,14 +139,16 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
                     if status is not None:
                         zones[zone_id] = status
 
-                try:
-                    master_status = await self.gateway.async_zone_status(unit * 10)
-                except _COMMUNICATION_ERRORS:
-                    if unit == 1:
-                        raise
-                else:
-                    if master_status is not None:
-                        zones[unit * 10] = master_status
+                # `?N0` is not a unit summary: the amplifier answers it with
+                # one status frame per zone (seven EOL sequences), so reading
+                # it as a zone parses the first zone's frame and leaves the
+                # other five to be read as the answer to the next command.
+                # Writes to `<N0..` do broadcast to every zone, so the master
+                # entity stays; it mirrors the unit's first zone, which is the
+                # state the mis-parse happened to show all along.
+                first_zone = zones.get(unit * 10 + 1)
+                if first_zone is not None:
+                    zones[unit * 10] = first_zone
 
             self.last_successful_poll = datetime.now(UTC)
             return zones

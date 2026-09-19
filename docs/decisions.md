@@ -33,6 +33,26 @@ All six entity services register through `service.async_register_platform_entity
 so they exist before any platform loads (developer blog 2025-09-25). Rejected: the
 deprecated per-platform registration.
 
+## 2026-09-18, reply frame counts are per command, confirmed on hardware
+
+A bench session against a 10761 found four commands reading one EOL frame where
+the amplifier sends two, and the per-unit poll reading `?N0` as if it were a
+zone when it answers with one frame per zone. Each left frames in the buffer for
+the next command to read as its own reply, and `send_raw` and `zone_field_status`
+returned the command echo rather than the answer. `api.py` now names the count
+(`REPLY_EOLS`) where it is known and drains where it is not, and `coordinator.py`
+stops querying `?N0` at all. Rejected: draining unconditionally after every
+command, which hides a wrong count instead of stating it, and costs a settle
+delay on the control writes that are already framed correctly.
+
+The same session found that `VO`/`MU`/`CH`/`TR`/`BS`/`BL` writes are accepted
+and discarded while a zone is powered off, and that `<ZZPA01` is accepted and
+ignored on this hardware while the malformed `<ZZPA1` draws "Command Error.".
+Both are recorded in `protocol.md`. The PA switch now reads the flag back and
+raises rather than silently returning to off; rejected: deleting the entity or
+moving it to `binary_sensor`, which breaks existing dashboards for a fact
+confirmed on one unit only.
+
 ## 2026-09-08, zone names live only in the config entry, never on the device
 
 `CONF_ZONE_NAMES` stores a zone's room name in the config entry's options, consumed by

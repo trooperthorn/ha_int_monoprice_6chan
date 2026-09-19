@@ -6,7 +6,8 @@ import logging
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -132,9 +133,20 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
         return getattr(self.coordinator.data[self._zone_id], "pa", False)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn PA on."""
+        """Turn PA on, reporting the amplifiers that refuse it.
+
+        `<ZZPA01` is accepted with a normal echo on hardware that ignores it
+        (a malformed `<ZZPA1` is what draws "Command Error."), so the only way
+        to tell the command apart from a no-op is to read the flag back.
+        """
         await self.coordinator.gateway.async_execute("set_pa", self._zone_id, True)
         await self.coordinator.async_refresh_zone(self._zone_id)
+        if not self.is_on:
+            raise HomeAssistantError(
+                f"Zone {self._zone_id} did not accept the PA command. On this "
+                "amplifier PA reports the hardware paging input and cannot be "
+                "set over RS-232; see docs/protocol.md."
+            )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn PA off."""
