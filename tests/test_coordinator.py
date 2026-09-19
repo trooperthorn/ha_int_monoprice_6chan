@@ -68,7 +68,7 @@ def _coordinator(hass, gateway, **options):
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={CONF_LAST_KNOWN_BAUD: 9600},
-        options={CONF_BAUD_RATE: 9600, **options},
+        options={CONF_BAUD_RATE: 9600} | options,
     )
     entry.add_to_hass(hass)
     return MonopriceCoordinator(hass, gateway, entry)
@@ -122,9 +122,12 @@ async def test_outage_cause_is_inferred_from_the_recovered_rate(
 ) -> None:
     """The rate the amplifier is found on separates power loss from a bad cable."""
     gateway = FakeGateway()
-    coordinator = _coordinator(hass, gateway)
+    # The link negotiates to the configured target, and it is that negotiated
+    # rate the outage is measured against, so the entry has to be configured
+    # for `before` rather than the gateway poked directly: the first poll calls
+    # async_ensure_link, which would overwrite it.
+    coordinator = _coordinator(hass, gateway, **{CONF_BAUD_RATE: before})
 
-    gateway.last_known_baud = before
     gateway.fail_with = TimeoutError("gone")
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
