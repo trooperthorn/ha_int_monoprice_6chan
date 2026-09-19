@@ -12,8 +12,8 @@ pytest.importorskip("homeassistant")
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.monoprice_custom.const import CONF_ZONE_NAMES, DOMAIN
-from custom_components.monoprice_custom.device import async_ensure_unit_devices
 from custom_components.monoprice_custom.coordinator import MonopriceCoordinator
+from custom_components.monoprice_custom.device import async_ensure_unit_devices
 from custom_components.monoprice_custom.number import (
     EQ_WIRE_OFFSET,
     MonopriceZoneNumber,
