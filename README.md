@@ -164,13 +164,16 @@ If you move the amplifier to a different USB/serial port, use **Settings → Dev
 
 *   The amplifier's Public Address input is a fixed hardware pin (not a `media_player.play_media` target); to page a zone, route your announcement device's audio into the amp's PA input and toggle the `Public Address` switch.
 *   The `Sound Mode` dropdown on each zone media player is a convenience preset that just sets the zone's Bass value, it isn't a hardware DSP mode, and it will move the Bass number entity's slider when used.
-*   Source names/keypad messages are limited to 8 ASCII characters by the hardware; longer input is silently truncated.
+*   Source names/keypad messages are limited to 8 ASCII characters by the hardware; longer input is truncated, and non-ASCII input is rejected with an error rather than sent as mangled bytes.
+*   Neither the source names nor the keypad welcome message can be read back over RS-232, so those text entities show the last value this integration sent, not what the keypad displays.
 
 ## 🩺 Troubleshooting
 
 *   **"Cannot connect" during verification:** confirm that no other integration or process owns the selected interface. Only the submitted interface is opened, and the verifier closes it before setup continues.
 *   **"Not a Monoprice amplifier" during verification:** the interface opened successfully but did not return a structurally valid Zone 11 response at a supported baud rate.
 *   **Entities go `Unavailable` intermittently:** usually a baud-rate mismatch on a long/noisy cable run, lower the target link speed in **Configure**.
+*   **Nothing responds after changing the target link speed:** the amplifier switches rate on receipt and never acknowledges, so it can end up somewhere the integration is not. It re-probes every supported rate automatically on the next poll, and connecting at the wrong rate cannot lock the controller. To force it back by hand, remove power from the amplifier for 30 seconds; it returns to 9600.
+*   **Serial-over-IP (`socket://`) endpoints:** the target link speed only changes the local end. The bridge's own configured rate governs the wire to the amplifier, so set the two to match at the bridge.
 *   **An expansion unit is unavailable:** discovery retries after recovery and every five minutes. A newly detected unit is added dynamically; an existing unit that returns becomes available again without a restart.
 *   For deeper diagnosis, download the integration's **Diagnostics** file from the device page. It reports redacted entry data, connection state, current/target baud, active units, poll timing, and failure/reconnect counters; arbitrary raw serial content is not included.
 

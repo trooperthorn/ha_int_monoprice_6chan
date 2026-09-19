@@ -1,7 +1,7 @@
 # TODO — findings from external Monoprice / clone implementations
 
-Research-only. Nothing in this file has been applied to the code; every item
-is a flag for a human decision. Where an item contradicts a statement in
+Research-only when written. Items checked off have since been applied; the
+rest are still flags for a human decision. Where an item contradicts a statement in
 `docs/protocol.md` or behaviour in `custom_components/monoprice_custom/`,
 the contradiction is named explicitly rather than silently "fixed".
 
@@ -256,7 +256,7 @@ plus the core Home Assistant integration in place of their own project.
 
 - [ ] Add a serial-over-IP section to `README.md` with a `socket://host:port`
   example and one ser2net config.
-- [ ] Review what our baud machinery means over a bridge. `gateway.py::
+- [x] Review what our baud machinery means over a bridge. `gateway.py::
   _ensure_link_sync` and `api.py::set_baud_rate` manipulate `self._port.baudrate`,
   which over `socket://` changes nothing on the far side of the bridge — the
   bridge's own fixed rate (`9600n81` above) wins. Either detect non-local
@@ -282,19 +282,19 @@ half. The permission half is missing, and `serial.py::_PORT_ERRORS` catches
 
 ## C. Edge cases and troubleshooting worth capturing
 
-- [ ] **Baud resets to 9600 on power loss, and a 30-second power-off is the
+- [x] **Baud resets to 9600 on power loss, and a 30-second power-off is the
   documented way to force it.** S1: "By default, at power loss, the device is
   set to run at 9600 BAUD" and "To reset the baud rate remove power from the
   controller for 30 seconds - it will reset to 9600 BAUD". Our
   `POWER_ON_BAUD_RATE` constant encodes the first half; neither half is in
   `README.md` where a user stuck at the wrong rate would look.
-- [ ] **Connecting at the wrong baud rate does not lock the controller.**
+- [x] **Connecting at the wrong baud rate does not lock the controller.**
   S1: "Running `npm run-script baudrate` with the incorrect connection baud
   rate will not cause it to lock so initialization scripting could be created
   to reset the baudrate before the API enables." This is a useful reassurance
   for `gateway.py`'s probe loop, which walks all six rates — worth stating in
   `docs/protocol.md` that the probe is safe by design, not merely by luck.
-- [ ] **Six supported baud rates are confirmed by an independent source.**
+- [x] **Six supported baud rates are confirmed by an independent source.**
   S1's `updateBaudRate.js` validates against exactly
   `[9600, 19200, 38400, 57600, 115200, 230400]`, matching
   `serial.py::SUPPORTED_BAUD_RATES`. Record the corroboration.

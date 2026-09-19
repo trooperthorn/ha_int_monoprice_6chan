@@ -32,6 +32,11 @@ REPLY_EOLS: Final = 2
 # How long to wait for any frames beyond the first when the reply length is
 # not known ahead of the send, as with send_raw.
 DRAIN_SETTLE: Final = 0.15
+# How long to let the line go quiet after the amplifier changes rate. It
+# switches mid-reply, so the tail of its echo is still arriving at the old
+# rate; clearing before it lands leaves those bytes to be read as the
+# confirmation. Measured threshold on a 10761 is 0.05s.
+BAUD_SETTLE: Final = 0.25
 
 
 def _format_set_pa(zone: int, pa: bool) -> bytes:
@@ -191,9 +196,14 @@ class MonopriceExtended(Monoprice):
 
         Only the six enumerated rates the firmware documents are accepted;
         anything else is rejected without touching the port. Returns True
-        once the new rate is confirmed with a status query, False if the
-        amp didn't respond at the new rate (the port is left at its
-        original rate in that case).
+        once the new rate is confirmed with a status query.
+
+        A False return does not mean the amplifier stayed put. It switches on
+        receipt and never acknowledges, so an unconfirmed switch leaves it at
+        the new rate with the local port put back to the old one. Finding it
+        again is `gateway.py::_ensure_link_sync`'s probe loop, which walks the
+        supported rates; connecting at the wrong one cannot lock the
+        controller, and removing power for 30 seconds forces it back to 9600.
         """
         if baud not in SUPPORTED_BAUD_RATES:
             raise ValueError(f"Unsupported baud rate: {baud}")
@@ -206,6 +216,11 @@ class MonopriceExtended(Monoprice):
         self._send_request(_format_set_baud_rate(baud))
 
         self._port.baudrate = baud
+        # Settle before clearing, not after: the echo's tail is still in
+        # flight at the old rate and decodes as garbage at the new one, so a
+        # reset issued immediately races the bytes it is meant to discard and
+        # the confirmation below reads them instead of the status reply.
+        sleep(BAUD_SETTLE)
         self._port.reset_input_buffer()
         self._port.reset_output_buffer()
 
