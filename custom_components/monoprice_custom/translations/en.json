@@ -1,205 +1,218 @@
 {
-    "config": {
-        "abort": {
-            "already_configured": "Device is already configured",
-            "reconfigure_successful": "Re-configuration was successful",
-            "unknown": "The configuration flow could not continue."
-        },
-        "error": {
-            "cannot_connect": "Failed to connect",
-            "not_monoprice": "The selected interface did not return a valid Monoprice amplifier response.",
-            "wrong_device": "The selected interface belongs to a different amplifier or serial adapter.",
-            "unknown": "Unexpected error"
-        },
-        "step": {
-            "user": {
-                "title": "Connect via USB / Serial",
-                "description": "Select one USB or serial port. Opening this form does not touch any port; only the selected port is opened, and only after you confirm the next step.",
-                "data": {
-                    "port": "USB / Serial Port"
-                }
-            },
-            "verify": {
-                "description": "Verify the Monoprice amplifier connected to {port}. Only this port is opened; the amplifier is asked for its zone 11 status while the baud rate is detected, and the port is closed again before you continue.",
-                "title": "Verify Monoprice amplifier"
-            },
-            "options": {
-                "data": {
-                    "source_1": "Name of source #1",
-                    "source_2": "Name of source #2",
-                    "source_3": "Name of source #3",
-                    "source_4": "Name of source #4",
-                    "source_5": "Name of source #5",
-                    "source_6": "Name of source #6",
-                    "baud_rate": "Target link speed (baud)"
-                },
-                "title": "Configure amplifier"
-            },
-            "zone_names": {
-                "title": "Name each zone's media player",
-                "description": "Optional. A blank field keeps that zone's default \"Zone N\" name; the amplifier itself has no way to store a room name, so this lives only in Home Assistant and can be changed later from Reconfigure or this integration's Configure option.",
-                "data": {
-                    "zone_11": "Zone 11 room name",
-                    "zone_12": "Zone 12 room name",
-                    "zone_13": "Zone 13 room name",
-                    "zone_14": "Zone 14 room name",
-                    "zone_15": "Zone 15 room name",
-                    "zone_16": "Zone 16 room name",
-                    "zone_21": "Zone 21 room name",
-                    "zone_22": "Zone 22 room name",
-                    "zone_23": "Zone 23 room name",
-                    "zone_24": "Zone 24 room name",
-                    "zone_25": "Zone 25 room name",
-                    "zone_26": "Zone 26 room name",
-                    "zone_31": "Zone 31 room name",
-                    "zone_32": "Zone 32 room name",
-                    "zone_33": "Zone 33 room name",
-                    "zone_34": "Zone 34 room name",
-                    "zone_35": "Zone 35 room name",
-                    "zone_36": "Zone 36 room name"
-                }
-            },
-            "reconfigure": {
-                "title": "Reconfigure Monoprice amplifier",
-                "description": "Select one USB or serial port. Opening this form does not touch any port; only the selected port is opened, and only after you confirm the next step.",
-                "data": {
-                    "port": "USB / Serial Port"
-                }
-            },
-            "reconfigure_options": {
-                "data": {
-                    "source_1": "Name of source #1",
-                    "source_2": "Name of source #2",
-                    "source_3": "Name of source #3",
-                    "source_4": "Name of source #4",
-                    "source_5": "Name of source #5",
-                    "source_6": "Name of source #6",
-                    "baud_rate": "Target link speed (baud)"
-                },
-                "title": "Configure amplifier"
-            },
-            "reconfigure_zone_names": {
-                "title": "Name each zone's media player",
-                "description": "Optional. A blank field keeps that zone's default \"Zone N\" name; the amplifier itself has no way to store a room name, so this lives only in Home Assistant and can be changed later from Reconfigure or this integration's Configure option.",
-                "data": {
-                    "zone_11": "Zone 11 room name",
-                    "zone_12": "Zone 12 room name",
-                    "zone_13": "Zone 13 room name",
-                    "zone_14": "Zone 14 room name",
-                    "zone_15": "Zone 15 room name",
-                    "zone_16": "Zone 16 room name",
-                    "zone_21": "Zone 21 room name",
-                    "zone_22": "Zone 22 room name",
-                    "zone_23": "Zone 23 room name",
-                    "zone_24": "Zone 24 room name",
-                    "zone_25": "Zone 25 room name",
-                    "zone_26": "Zone 26 room name",
-                    "zone_31": "Zone 31 room name",
-                    "zone_32": "Zone 32 room name",
-                    "zone_33": "Zone 33 room name",
-                    "zone_34": "Zone 34 room name",
-                    "zone_35": "Zone 35 room name",
-                    "zone_36": "Zone 36 room name"
-                }
-            },
-            "interface": {
-                "title": "Connect via USB / Serial",
-                "description": "Verification failed on the previous port. Pick the port again, or choose a different one, and the next step will verify only that port.",
-                "data": {
-                    "port": "USB / Serial Port"
-                }
-            }
-        }
+  "config": {
+    "abort": {
+      "already_configured": "Device is already configured",
+      "reconfigure_successful": "Re-configuration was successful",
+      "unknown": "The configuration flow could not continue."
     },
-    "options": {
-        "step": {
-            "init": {
-                "data": {
-                    "source_1": "Name of source #1",
-                    "source_2": "Name of source #2",
-                    "source_3": "Name of source #3",
-                    "source_4": "Name of source #4",
-                    "source_5": "Name of source #5",
-                    "source_6": "Name of source #6",
-                    "baud_rate": "Target link speed (baud)"
-                },
-                "title": "Configure sources"
-            },
-            "zone_names": {
-                "title": "Name each zone's media player",
-                "description": "Optional. A blank field keeps that zone's default \"Zone N\" name; the amplifier itself has no way to store a room name, so this lives only in Home Assistant and can be changed later from Reconfigure or this integration's Configure option.",
-                "data": {
-                    "zone_11": "Zone 11 room name",
-                    "zone_12": "Zone 12 room name",
-                    "zone_13": "Zone 13 room name",
-                    "zone_14": "Zone 14 room name",
-                    "zone_15": "Zone 15 room name",
-                    "zone_16": "Zone 16 room name",
-                    "zone_21": "Zone 21 room name",
-                    "zone_22": "Zone 22 room name",
-                    "zone_23": "Zone 23 room name",
-                    "zone_24": "Zone 24 room name",
-                    "zone_25": "Zone 25 room name",
-                    "zone_26": "Zone 26 room name",
-                    "zone_31": "Zone 31 room name",
-                    "zone_32": "Zone 32 room name",
-                    "zone_33": "Zone 33 room name",
-                    "zone_34": "Zone 34 room name",
-                    "zone_35": "Zone 35 room name",
-                    "zone_36": "Zone 36 room name"
-                }
-            }
-        }
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "not_monoprice": "The selected interface did not return a valid Monoprice amplifier response.",
+      "wrong_device": "The selected interface belongs to a different amplifier or serial adapter.",
+      "unknown": "Unexpected error",
+      "permission_denied": "Home Assistant is not allowed to open that port. On Linux the service user usually needs to be in the 'dialout' group."
     },
-    "entity": {
-        "sensor": {
-            "keypad_status": {
-                "name": "Keypad status",
-                "state": {
-                    "connected": "Connected",
-                    "disconnected": "Disconnected"
-                }
-            }
+    "step": {
+      "user": {
+        "title": "Connect via USB / Serial",
+        "description": "Select one USB or serial port. Opening this form does not touch any port; only the selected port is opened, and only after you confirm the next step.",
+        "data": {
+          "port": "USB / Serial Port"
         }
-    },
-    "exceptions": {
-        "cannot_connect": {
-            "message": "Could not connect to the Monoprice amplifier at {port}."
+      },
+      "verify": {
+        "description": "Verify the Monoprice amplifier connected to {port}. Only this port is opened; the amplifier is asked for its zone 11 status while the baud rate is detected, and the port is closed again before you continue.",
+        "title": "Verify Monoprice amplifier"
+      },
+      "options": {
+        "data": {
+          "source_1": "Name of source #1",
+          "source_2": "Name of source #2",
+          "source_3": "Name of source #3",
+          "source_4": "Name of source #4",
+          "source_5": "Name of source #5",
+          "source_6": "Name of source #6",
+          "baud_rate": "Target link speed (baud)",
+          "poll_interval": "Poll interval (seconds)",
+          "max_volume": "Maximum volume (0-38)",
+          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)"
         },
-        "unsupported_baud_rate": {
-            "message": "{baud} is not a baud rate this amplifier supports."
+        "title": "Configure amplifier"
+      },
+      "zone_names": {
+        "title": "Name each zone's media player",
+        "description": "Optional. A blank field keeps that zone's default \"Zone N\" name; the amplifier itself has no way to store a room name, so this lives only in Home Assistant and can be changed later from Reconfigure or this integration's Configure option.",
+        "data": {
+          "zone_11": "Zone 11 room name",
+          "zone_12": "Zone 12 room name",
+          "zone_13": "Zone 13 room name",
+          "zone_14": "Zone 14 room name",
+          "zone_15": "Zone 15 room name",
+          "zone_16": "Zone 16 room name",
+          "zone_21": "Zone 21 room name",
+          "zone_22": "Zone 22 room name",
+          "zone_23": "Zone 23 room name",
+          "zone_24": "Zone 24 room name",
+          "zone_25": "Zone 25 room name",
+          "zone_26": "Zone 26 room name",
+          "zone_31": "Zone 31 room name",
+          "zone_32": "Zone 32 room name",
+          "zone_33": "Zone 33 room name",
+          "zone_34": "Zone 34 room name",
+          "zone_35": "Zone 35 room name",
+          "zone_36": "Zone 36 room name",
+          "ignore_zones": "Zones to exclude from master (all-zone) commands"
         }
-    },
-    "services": {
-        "snapshot": {
-            "name": "Snapshot",
-            "description": "Takes a snapshot of the media player zone."
-        },
-        "restore": {
-            "name": "Restore",
-            "description": "Restores a snapshot of the media player zone."
-        },
-        "set_balance": {
-            "name": "Set Balance",
-            "description": "Set the zone balance level."
-        },
-        "set_bass": {
-            "name": "Set Bass",
-            "description": "Set the bass level."
-        },
-        "set_treble": {
-            "name": "Set Treble",
-            "description": "Set treble level."
-        },
-        "set_baud_rate": {
-            "name": "Set link speed",
-            "description": "Negotiate the amplifier and local RS-232 port to a new baud rate.",
-            "fields": {
-                "baud_rate": {
-                    "name": "Baud rate",
-                    "description": "Target link speed, in baud."
-                }
-            }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Monoprice amplifier",
+        "description": "Select one USB or serial port. Opening this form does not touch any port; only the selected port is opened, and only after you confirm the next step.",
+        "data": {
+          "port": "USB / Serial Port"
         }
+      },
+      "reconfigure_options": {
+        "data": {
+          "source_1": "Name of source #1",
+          "source_2": "Name of source #2",
+          "source_3": "Name of source #3",
+          "source_4": "Name of source #4",
+          "source_5": "Name of source #5",
+          "source_6": "Name of source #6",
+          "baud_rate": "Target link speed (baud)",
+          "poll_interval": "Poll interval (seconds)",
+          "max_volume": "Maximum volume (0-38)",
+          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)"
+        },
+        "title": "Configure amplifier"
+      },
+      "reconfigure_zone_names": {
+        "title": "Name each zone's media player",
+        "description": "Optional. A blank field keeps that zone's default \"Zone N\" name; the amplifier itself has no way to store a room name, so this lives only in Home Assistant and can be changed later from Reconfigure or this integration's Configure option.",
+        "data": {
+          "zone_11": "Zone 11 room name",
+          "zone_12": "Zone 12 room name",
+          "zone_13": "Zone 13 room name",
+          "zone_14": "Zone 14 room name",
+          "zone_15": "Zone 15 room name",
+          "zone_16": "Zone 16 room name",
+          "zone_21": "Zone 21 room name",
+          "zone_22": "Zone 22 room name",
+          "zone_23": "Zone 23 room name",
+          "zone_24": "Zone 24 room name",
+          "zone_25": "Zone 25 room name",
+          "zone_26": "Zone 26 room name",
+          "zone_31": "Zone 31 room name",
+          "zone_32": "Zone 32 room name",
+          "zone_33": "Zone 33 room name",
+          "zone_34": "Zone 34 room name",
+          "zone_35": "Zone 35 room name",
+          "zone_36": "Zone 36 room name",
+          "ignore_zones": "Zones to exclude from master (all-zone) commands"
+        }
+      },
+      "interface": {
+        "title": "Connect via USB / Serial",
+        "description": "Verification failed on the previous port. Pick the port again, or choose a different one, and the next step will verify only that port.",
+        "data": {
+          "port": "USB / Serial Port"
+        }
+      }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "source_1": "Name of source #1",
+          "source_2": "Name of source #2",
+          "source_3": "Name of source #3",
+          "source_4": "Name of source #4",
+          "source_5": "Name of source #5",
+          "source_6": "Name of source #6",
+          "baud_rate": "Target link speed (baud)",
+          "poll_interval": "Poll interval (seconds)",
+          "max_volume": "Maximum volume (0-38)",
+          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)"
+        },
+        "title": "Configure sources"
+      },
+      "zone_names": {
+        "title": "Name each zone's media player",
+        "description": "Optional. A blank field keeps that zone's default \"Zone N\" name; the amplifier itself has no way to store a room name, so this lives only in Home Assistant and can be changed later from Reconfigure or this integration's Configure option.",
+        "data": {
+          "zone_11": "Zone 11 room name",
+          "zone_12": "Zone 12 room name",
+          "zone_13": "Zone 13 room name",
+          "zone_14": "Zone 14 room name",
+          "zone_15": "Zone 15 room name",
+          "zone_16": "Zone 16 room name",
+          "zone_21": "Zone 21 room name",
+          "zone_22": "Zone 22 room name",
+          "zone_23": "Zone 23 room name",
+          "zone_24": "Zone 24 room name",
+          "zone_25": "Zone 25 room name",
+          "zone_26": "Zone 26 room name",
+          "zone_31": "Zone 31 room name",
+          "zone_32": "Zone 32 room name",
+          "zone_33": "Zone 33 room name",
+          "zone_34": "Zone 34 room name",
+          "zone_35": "Zone 35 room name",
+          "zone_36": "Zone 36 room name",
+          "ignore_zones": "Zones to exclude from master (all-zone) commands"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "keypad_status": {
+        "name": "Keypad status",
+        "state": {
+          "connected": "Connected",
+          "disconnected": "Disconnected"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "cannot_connect": {
+      "message": "Could not connect to the Monoprice amplifier at {port}."
+    },
+    "unsupported_baud_rate": {
+      "message": "{baud} is not a baud rate this amplifier supports."
+    }
+  },
+  "services": {
+    "snapshot": {
+      "name": "Snapshot",
+      "description": "Takes a snapshot of the media player zone."
+    },
+    "restore": {
+      "name": "Restore",
+      "description": "Restores a snapshot of the media player zone."
+    },
+    "set_balance": {
+      "name": "Set Balance",
+      "description": "Set the zone balance level."
+    },
+    "set_bass": {
+      "name": "Set Bass",
+      "description": "Set the bass level."
+    },
+    "set_treble": {
+      "name": "Set Treble",
+      "description": "Set treble level."
+    },
+    "set_baud_rate": {
+      "name": "Set link speed",
+      "description": "Negotiate the amplifier and local RS-232 port to a new baud rate.",
+      "fields": {
+        "baud_rate": {
+          "name": "Baud rate",
+          "description": "Target link speed, in baud."
+        }
+      }
+    }
+  }
 }

@@ -54,6 +54,15 @@ class NotMonopriceDevice(MonopriceValidationError):
     """The submitted endpoint did not return a valid Monoprice response."""
 
 
+class PortPermissionDenied(CannotOpenPort):
+    """The endpoint exists but this user may not open it.
+
+    A subclass of CannotOpenPort so existing handlers keep working, raised
+    separately so the config flow can say which of the two problems it is:
+    on Linux the service user usually just needs the dialout group.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class ValidationResult:
     """Result of a short-lived Monoprice endpoint validation."""
@@ -144,6 +153,8 @@ def validate_monoprice_endpoint(
     except _PORT_ERRORS as err:
         if port is not None and not port.closed:
             port.close()
+        if isinstance(err, PermissionError):
+            raise PortPermissionDenied(port_url) from err
         raise CannotOpenPort(port_url) from err
 
     try:
@@ -173,6 +184,8 @@ def validate_monoprice_endpoint(
     except (TimeoutError, EOFError) as err:
         raise NotMonopriceDevice(port_url) from err
     except _PORT_ERRORS as err:
+        if isinstance(err, PermissionError):
+            raise PortPermissionDenied(port_url) from err
         raise CannotOpenPort(port_url) from err
     finally:
         if not port.closed:

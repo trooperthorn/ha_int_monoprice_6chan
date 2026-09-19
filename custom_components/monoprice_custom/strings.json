@@ -21,7 +21,10 @@
           "source_4": "Name of source #4",
           "source_5": "Name of source #5",
           "source_6": "Name of source #6",
-          "baud_rate": "Target link speed (baud)"
+          "baud_rate": "Target link speed (baud)",
+          "poll_interval": "Poll interval (seconds)",
+          "max_volume": "Maximum volume (0-38)",
+          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)"
         }
       },
       "zone_names": {
@@ -45,7 +48,8 @@
           "zone_33": "Zone 33 room name",
           "zone_34": "Zone 34 room name",
           "zone_35": "Zone 35 room name",
-          "zone_36": "Zone 36 room name"
+          "zone_36": "Zone 36 room name",
+          "ignore_zones": "Zones to exclude from master (all-zone) commands"
         }
       },
       "reconfigure": {
@@ -64,7 +68,10 @@
           "source_4": "[%key:component::monoprice_custom::config::step::options::data::source_4%]",
           "source_5": "[%key:component::monoprice_custom::config::step::options::data::source_5%]",
           "source_6": "[%key:component::monoprice_custom::config::step::options::data::source_6%]",
-          "baud_rate": "[%key:component::monoprice_custom::config::step::options::data::baud_rate%]"
+          "baud_rate": "[%key:component::monoprice_custom::config::step::options::data::baud_rate%]",
+          "poll_interval": "Poll interval (seconds)",
+          "max_volume": "Maximum volume (0-38)",
+          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)"
         }
       },
       "reconfigure_zone_names": {
@@ -88,7 +95,8 @@
           "zone_33": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_33%]",
           "zone_34": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_34%]",
           "zone_35": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_35%]",
-          "zone_36": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_36%]"
+          "zone_36": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_36%]",
+          "ignore_zones": "Zones to exclude from master (all-zone) commands"
         }
       },
       "interface": {
@@ -103,7 +111,8 @@
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "not_monoprice": "The selected interface did not return a valid Monoprice amplifier response.",
       "wrong_device": "The selected interface belongs to a different amplifier or serial adapter.",
-      "unknown": "[%key:common::config_flow::error::unknown%]"
+      "unknown": "[%key:common::config_flow::error::unknown%]",
+      "permission_denied": "Home Assistant is not allowed to open that port. On Linux the service user usually needs to be in the 'dialout' group."
     },
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
@@ -122,7 +131,10 @@
           "source_4": "[%key:component::monoprice_custom::config::step::options::data::source_4%]",
           "source_5": "[%key:component::monoprice_custom::config::step::options::data::source_5%]",
           "source_6": "[%key:component::monoprice_custom::config::step::options::data::source_6%]",
-          "baud_rate": "[%key:component::monoprice_custom::config::step::options::data::baud_rate%]"
+          "baud_rate": "[%key:component::monoprice_custom::config::step::options::data::baud_rate%]",
+          "poll_interval": "Poll interval (seconds)",
+          "max_volume": "Maximum volume (0-38)",
+          "all_on_volume": "Volume to set when a master zone is switched on (0 to leave alone)"
         }
       },
       "zone_names": {
@@ -146,7 +158,8 @@
           "zone_33": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_33%]",
           "zone_34": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_34%]",
           "zone_35": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_35%]",
-          "zone_36": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_36%]"
+          "zone_36": "[%key:component::monoprice_custom::config::step::zone_names::data::zone_36%]",
+          "ignore_zones": "Zones to exclude from master (all-zone) commands"
         }
       }
     }

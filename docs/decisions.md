@@ -33,6 +33,46 @@ All six entity services register through `service.async_register_platform_entity
 so they exist before any platform loads (developer blog 2025-09-25). Rejected: the
 deprecated per-platform registration.
 
+## 2026-09-19, this integration targets the 10761 six-zone family, and says so
+
+Zone and source counts stay constants. `range(1, 7)` in the coordinator and
+every platform, `SOURCE_INDEXES` in `api.py`, and `CONF_SOURCE_1..6` in
+`const.py` all encode six, and the same command set runs hardware that is not
+six: Monoprice 44519 is four zones, 44518 is eight, Dayton DAX88 is eight zones
+and eight sources, Xantech is eight sources. Supporting any of them means zone
+count and source count becoming per-entry configuration discovered at setup,
+which reaches the config flow, every platform, the entity ids and the stored
+options. Rejected: doing that speculatively. The scope is the Monoprice 10761
+and the units that match it exactly (DAX66, 39261, WS66i and the generic
+clones), and `protocol.md` now marks the zone-id rejection as a fact about
+six-zone units rather than a protocol invariant, so the door is documented
+rather than nailed shut.
+
+Two nearby families are explicitly out: the Monoprice 31028 / PAM1270 is a
+70-volt unit with a different framing entirely (`!` prefix, `+\r` suffix, `ZS`
+query suffix, no tone or balance in the status record), and Xantech's own
+controllers use single-digit zones, eight sources, a balance range offset by
+32, and emit unsolicited keypad updates this reader does not expect. The
+family resemblance is real - pyxantech records that Monoprice and Dayton
+appear to have licensed or copied the Xantech serial interface - which is
+exactly why the boundary needs writing down.
+
+## 2026-09-19, new behaviour options are per-entry, and the exclusion list
+changes how a master write is addressed
+
+Poll interval, maximum volume, master power-on volume and the master exclusion
+list are all config-entry options rather than constants or YAML. The first
+three are clamps and intervals the code applies directly. The exclusion list is
+different: `<N0..` broadcasts inside the amplifier's firmware, so excluding a
+zone means not using the broadcast at all and addressing the remaining zones
+one at a time, six commands instead of one. That trade only happens when a list
+is actually set, and `zones.py::write_targets` is the single place that decides
+it, kept free of Home Assistant imports so the rule is testable on its own.
+Turning everything off deliberately ignores the list, following the openHAB
+binding's "except All Off": an excluded zone is one that should not be switched
+on or re-sourced behind the user's back, not one that should be left playing
+when the house goes quiet.
+
 ## 2026-09-19, commands are paced, and the pacing lives in the gateway
 
 Every source that documents timing enforces a floor between RS-232 commands;

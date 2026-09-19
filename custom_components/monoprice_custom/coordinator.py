@@ -13,7 +13,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from pymonoprice import ZoneStatus
 
-from .const import CONF_BAUD_RATE, CONF_LAST_KNOWN_BAUD
+from .api import MonopriceCommandError
+from .const import (
+    CONF_BAUD_RATE,
+    CONF_LAST_KNOWN_BAUD,
+    CONF_POLL_INTERVAL,
+    DEFAULT_POLL_INTERVAL,
+    MAX_POLL_INTERVAL,
+    MIN_POLL_INTERVAL,
+)
 from .gateway import MonopriceGateway
 from .serial import (
     EXPANSION_PROBE_SPACING,
@@ -24,9 +32,26 @@ from .serial import (
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_TARGET_BAUD = POWER_ON_BAUD_RATE
-UPDATE_INTERVAL = timedelta(seconds=5)
+UPDATE_INTERVAL = timedelta(seconds=DEFAULT_POLL_INTERVAL)
 EXPANSION_DISCOVERY_INTERVAL = timedelta(minutes=5)
-_COMMUNICATION_ERRORS = (serialx.SerialException, TimeoutError, OSError)
+# A rejection means the reply stream is not where the reader thinks it is,
+# so it is handled like a link fault: drop _link_ready and let the next
+# poll re-probe rather than parsing onward.
+_COMMUNICATION_ERRORS = (
+    serialx.SerialException,
+    TimeoutError,
+    OSError,
+    MonopriceCommandError,
+)
+
+
+def poll_interval(entry: ConfigEntry) -> timedelta:
+    """Return the configured poll interval, clamped to the supported range."""
+    try:
+        seconds = int(entry.options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
+    except (TypeError, ValueError):
+        seconds = DEFAULT_POLL_INTERVAL
+    return timedelta(seconds=max(MIN_POLL_INTERVAL, min(seconds, MAX_POLL_INTERVAL)))
 
 
 class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
@@ -52,7 +77,7 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
             _LOGGER,
             config_entry=entry,
             name="Monoprice 6-Zone",
-            update_interval=UPDATE_INTERVAL,
+            update_interval=poll_interval(entry),
         )
 
     @property
@@ -108,18 +133,35 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
         )
 
     async def async_refresh_zone(self, zone_id: int) -> None:
-        """Refresh one zone and publish it immediately."""
-        try:
-            status = await self.gateway.async_zone_status(zone_id)
-        except _COMMUNICATION_ERRORS:
-            self._link_ready = False
-            await self.async_request_refresh()
-            return
+        """Refresh one zone and publish it immediately.
 
-        if status is None:
-            return
+        A master id is not a readable zone: `?N0` answers with one frame per
+        zone, so querying it here would mis-parse exactly as the poll used to.
+        A master write also lands on every zone in the unit, so the whole unit
+        is re-read and the first zone mirrored into the master.
+        """
+        zone_ids = (
+            [zone_id + offset for offset in range(1, 7)]
+            if zone_id % 10 == 0
+            else [zone_id]
+        )
         new_data = dict(self.data or {})
-        new_data[zone_id] = status
+        updated = False
+        for query_id in zone_ids:
+            try:
+                status = await self.gateway.async_zone_status(query_id)
+            except _COMMUNICATION_ERRORS:
+                self._link_ready = False
+                await self.async_request_refresh()
+                return
+            if status is not None:
+                new_data[query_id] = status
+                updated = True
+
+        if not updated:
+            return
+        if zone_id % 10 == 0 and (first := new_data.get(zone_id + 1)) is not None:
+            new_data[zone_id] = first
         self.async_set_updated_data(new_data)
 
     async def _async_update_data(self) -> dict[int, ZoneStatus]:

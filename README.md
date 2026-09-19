@@ -150,6 +150,42 @@ The amplifier always powers on at 9600 baud. On first poll after startup the int
 
 ---
 
+## 🌐 Serial over IP
+
+The port field accepts a `socket://host:port` URL as well as a local device, so
+the amplifier does not have to be plugged into the Home Assistant machine.
+Newer amplifiers ship an Ethernet port that speaks serial over IP directly on
+port **8080**; for everything else, a small bridge next to the amp works.
+
+```text
+socket://192.168.1.50:8080
+```
+
+`ser2net` is the usual bridge. Version 4 and later uses YAML:
+
+```yaml
+connection: &conMono
+    accepter: tcp,8080
+    enable: on
+    options:
+      kickolduser: true
+    connector: serialdev,/dev/ttyUSB0,9600n81,local
+```
+
+Older `ser2net.conf` syntax:
+
+```text
+8080:raw:0:/dev/ttyUSB0:9600 8DATABITS NONE 1STOPBIT LOCAL
+```
+
+Two things to know about bridged setups. The **target link speed only changes
+the local end** - the bridge's own configured rate governs the wire to the
+amplifier, so set them to match at the bridge and leave the integration at the
+same value. And `kickolduser` matters: without it a stale connection can hold
+the port and the integration will report "cannot connect".
+
+---
+
 ## 🔁 Reconfiguring
 
 If you move the amplifier to a different USB/serial port, use **Settings → Devices & Services → Monoprice → Reconfigure** instead of removing and re-adding the integration, it keeps your existing entities, automations, and history intact. Reconfigure uses the same selector and verifier as setup; when the adapter exposes a stable USB identity, a different adapter is rejected, and a failed probe leaves the existing entry untouched.
@@ -160,9 +196,30 @@ If you move the amplifier to a different USB/serial port, use **Settings → Dev
 
 ---
 
+## 🎛️ Behaviour Options
+
+All of these live in **Settings → Devices & Services → Monoprice → Configure**,
+alongside the source names and target link speed.
+
+| Option | Range | Default | What it does |
+| --- | --- | --- | --- |
+| **Poll interval** | 5-60 s | 5 s | How often every zone is re-read. The amplifier never reports changes on its own, so this is the only way a keypad or front-panel change reaches Home Assistant. Raise it to put less traffic on a shared or bridged line. |
+| **Maximum volume** | 1-38 | 38 | Ceiling applied to every volume this integration sends, including master writes. Useful where the wire maximum is more than the speakers should take. |
+| **Volume on master power-on** | 0-38 | 0 (off) | When a master zone is switched on, force every zone it reaches to this volume first. Guards against six zones jumping to whatever the master was last set to. |
+| **Zones excluded from master commands** | any zones | none | Zones a master (all-zone) command must skip - a bathroom, an outdoor zone, a zone with no speakers. **Turning everything off is deliberately exempt** and still reaches every zone. |
+
+Excluding any zone changes how a master command is sent: with nothing excluded
+the amplifier's own broadcast is used, one command for the whole unit, and with
+an exclusion list the remaining zones are addressed one at a time, because the
+broadcast happens inside the amplifier's firmware and cannot be filtered.
+
+---
+
 ## ⚠️ Known Limitations
 
-*   The amplifier's Public Address input is a fixed hardware pin (not a `media_player.play_media` target); to page a zone, route your announcement device's audio into the amp's PA input and toggle the `Public Address` switch.
+*   **Supported hardware is the Monoprice 10761 six-zone family** (and the units that match it exactly: Dayton DAX66, Monoprice 39261, Soundavo WS66i and the generic clones). Four-zone and eight-zone relatives such as the Monoprice 44519/44518 and the Dayton DAX88 speak the same commands but have different zone and source counts, which this integration hard-codes to six. The Monoprice 31028/PAM1270 and Xantech controllers use a different framing altogether and will not work. See `docs/decisions.md`.
+
+*   Paging is a hardware function. The `Public Address` switch sends the documented `<ZZPA01` command, but the amplifier ignores it: on this family, "Page All Zones" can only be activated through the **+12V trigger input** on the back of the amplifier. Route your announcement device's audio into the PA input and drive that trigger. The switch is kept because the command is accepted without error, so a firmware that does honour it would work, and it now raises an error rather than silently flipping back.
 *   The `Sound Mode` dropdown on each zone media player is a convenience preset that just sets the zone's Bass value, it isn't a hardware DSP mode, and it will move the Bass number entity's slider when used.
 *   Source names/keypad messages are limited to 8 ASCII characters by the hardware; longer input is truncated, and non-ASCII input is rejected with an error rather than sent as mangled bytes.
 *   Neither the source names nor the keypad welcome message can be read back over RS-232, so those text entities show the last value this integration sent, not what the keypad displays.
@@ -170,6 +227,7 @@ If you move the amplifier to a different USB/serial port, use **Settings → Dev
 ## 🩺 Troubleshooting
 
 *   **"Cannot connect" during verification:** confirm that no other integration or process owns the selected interface. Only the submitted interface is opened, and the verifier closes it before setup continues.
+*   **"Not allowed to open that port":** a permissions problem rather than a wiring one. On a Linux host the user Home Assistant runs as needs to be in the `dialout` group (`sudo usermod -a -G dialout <user>`, then restart), and on Home Assistant OS the port must be passed through to the container. This is reported separately from "cannot connect" so you know which of the two you have.
 *   **"Not a Monoprice amplifier" during verification:** the interface opened successfully but did not return a structurally valid Zone 11 response at a supported baud rate.
 *   **Entities go `Unavailable` intermittently:** usually a baud-rate mismatch on a long/noisy cable run, lower the target link speed in **Configure**.
 *   **Nothing responds after changing the target link speed:** the amplifier switches rate on receipt and never acknowledges, so it can end up somewhere the integration is not. It re-probes every supported rate automatically on the next poll, and connecting at the wrong rate cannot lock the controller. To force it back by hand, remove power from the amplifier for 30 seconds; it returns to 9600.
