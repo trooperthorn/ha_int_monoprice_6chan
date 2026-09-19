@@ -68,6 +68,12 @@ while it is on. Sent to a powered-off zone they are silently discarded.
 | `VO`, `MU`, `CH`, `TR`, `BS`, `BL` | Applied | Silently ignored | Verified |
 | `PR` (power), `DT` (do not disturb) | Applied | Applied | Verified |
 
+No other implementation documents this. It is not contradicted anywhere
+either: jnewland/mpr-6zhmaut-api, the Hubitat driver, the openHAB
+`monopriceaudio` binding and pyxantech simply do not mention the case, so this
+repository is the only written record of it and it rests on one bench
+observation. Treat it as verified here and unconfirmed elsewhere.
+
 There is no error to detect, so a caller that needs one of these to stick
 has to power the zone on first. Every setter in `media_player.py` and
 `number.py` re-reads the zone afterwards, so Home Assistant shows the value
@@ -113,7 +119,13 @@ by design.
 | Balance (BL) | 0-20 | 0 = full left, 10 = center, 20 = full right | Verified (RS-232 spec) |
 | Source (CH) | 1-6 | Source names from the config entry | Verified |
 
-Both ends of every range were accepted and read back unchanged on hardware.
+Both ends of every range were accepted and read back unchanged on hardware,
+and the display conventions are independently confirmed: the openHAB
+`monopriceaudio` binding uses `minTone=-7, maxTone=+7, toneOffset=7` and
+`minBal=-10, maxBal=+10, balOffset=10` for this family, which is exactly what
+`number.py` applies. Each mapping was also round-tripped on the amplifier:
+bass -7/0/+7 wrote wire 0/7/14 and balance -10/0/+10 wrote wire 0/10/20, every
+one reading back unchanged.
 `number.py` displays the translated signed value to the user and translates
 back to the 0-14/0-20 wire value before sending. `const.py`'s
 `ATTR_BALANCE`/`ATTR_BASS`/`ATTR_TREBLE` service fields carry the raw wire
@@ -145,6 +157,50 @@ The expansion-probe spacing is a precaution on published precedent, not a fix
 validated against a reproduction. The bench that produced this document had
 one unit and no expansion units, so whether the previous back-to-back probe
 ever actually missed a slaved unit is still unverified.
+
+## The keypad field is status only
+
+The last pair in a status record is the keypad connection flag, `ls` in
+jnewland/mpr-6zhmaut-api's parser and `jj` in the DAX88 manual, which gives the
+encoding explicitly: `00` not connected, `01` connected. `pymonoprice` exposes
+it as `ZoneStatus.keypad` and `sensor.py::MonopriceKeypadSensor` presents it as
+a read-only diagnostic enum with no setter, which is the right shape: S1 accepts
+the field on `GET /zones/:zone/:attribute` and deliberately leaves it out of the
+`POST` list, and the openHAB binding models it as a read-only `Contact`. There
+is no command to write it.
+
+| Fact | Status |
+| --- | --- |
+| The last pair is the keypad connection flag, `00` not connected / `01` connected | Documented in the DAX88 manual; `00` observed on every zone here |
+| No implementation offers a way to set it | Verified across all four reference sources |
+
+On the bench amplifier all six zones report `00`. That is worth knowing when
+choosing a poll interval: keypad presses are the main thing polling exists to
+catch (see `design.md`), so an amplifier reporting no keypads has little to
+discover between commands Home Assistant itself sent. It says the amplifier
+sees no keypad, which is not quite the same as there being none wired, so treat
+it as a hint rather than a licence to stop polling - the front panel still
+changes state out of band.
+
+## On trusting these sources
+
+The reference implementations do not carry equal weight, and two of them are
+actively misleading about field layout.
+
+| Source | Use it for | Do not use it for |
+| --- | --- | --- |
+| DAX88 manual, via pyxantech's `docs/dax88-rs232.txt` | Field names, widths and the keypad encoding | Anything 10761-specific |
+| openHAB `monopriceaudio` | Display conventions, model differences, hardware facts like the +12V paging input | - |
+| jnewland/mpr-6zhmaut-api | Command shapes, baud behaviour, the field order | - |
+| pyxantech `protocols/monoprice.yaml` | Nothing; see the status-framing note | Field order, which it gets wrong |
+| Hubitat driver | Weak corroboration of field widths only | Settling any disagreement |
+
+The Hubitat driver parses a status record by fixed byte offsets rather than a
+pattern - power at 7-9, mute 9-11, volume 13-15, treble 15-17, bass 17-19,
+balance 19-21, source 21-23 - and skips the `pa` and `dt` fields entirely.
+Those offsets are consistent with the field widths used here, which is the only
+thing it is cited for. It is the least reliable of the sources and should not
+be used to settle a disagreement.
 
 ## Status response framing
 

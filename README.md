@@ -203,7 +203,7 @@ alongside the source names and target link speed.
 
 | Option | Range | Default | What it does |
 | --- | --- | --- | --- |
-| **Poll interval** | 5-60 s | 5 s | How often every zone is re-read. The amplifier never reports changes on its own, so this is the only way a keypad or front-panel change reaches Home Assistant. Raise it to put less traffic on a shared or bridged line. |
+| **Poll interval** | 5-60 s | 5 s | How often every zone is re-read. The amplifier never reports changes on its own, so this is the only way a keypad or front-panel change reaches Home Assistant. Raise it to put less traffic on a shared or bridged line. Each zone has a diagnostic **Keypad status** sensor: if every zone reads `disconnected`, keypad presses are not something you need to catch and a longer interval costs you little (the front panel still changes state out of band). |
 | **Maximum volume** | 1-38 | 38 | Ceiling applied to every volume this integration sends, including master writes. Useful where the wire maximum is more than the speakers should take. |
 | **Volume on master power-on** | 0-38 | 0 (off) | When a master zone is switched on, force every zone it reaches to this volume first. Guards against six zones jumping to whatever the master was last set to. |
 | **Zones excluded from master commands** | any zones | none | Zones a master (all-zone) command must skip - a bathroom, an outdoor zone, a zone with no speakers. **Turning everything off is deliberately exempt** and still reaches every zone. |
