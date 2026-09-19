@@ -34,6 +34,18 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_TARGET_BAUD = POWER_ON_BAUD_RATE
 UPDATE_INTERVAL = timedelta(seconds=DEFAULT_POLL_INTERVAL)
 EXPANSION_DISCOVERY_INTERVAL = timedelta(minutes=5)
+# A failed poll runs the six-rate recovery sweep, which costs about two
+# seconds per rate, so retrying at the poll interval means the serial line
+# is never idle while the amplifier is off. Back off instead: double on each
+# consecutive failure up to the cap, and reset on the first success. The
+# amplifier is reachable roughly eight seconds after power returns (see
+# docs/protocol.md), so the early retries still catch a reboot quickly.
+MAX_RETRY_INTERVAL = 120.0
+
+# How an outage ended, inferred from the rate the amplifier was found on.
+CAUSE_POWER_CYCLE = "power_cycle"
+CAUSE_LINK_FAULT = "link_fault"
+CAUSE_UNKNOWN = "unknown"
 # A rejection means the reply stream is not where the reader thinks it is,
 # so it is handled like a link fault: drop _link_ready and let the next
 # poll re-probe rather than parsing onward.
@@ -71,6 +83,16 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
         self.last_poll_duration: float | None = None
         self._link_ready = False
         self._next_expansion_discovery = 0.0
+
+        # Outage history, for telling a power event apart from a serial fault.
+        self.offline_since: datetime | None = None
+        self.last_offline_at: datetime | None = None
+        self.last_outage_duration: timedelta | None = None
+        self.last_outage_cause: str | None = None
+        self.outage_count = 0
+        self.consecutive_failures = 0
+        self.retry_delay: float | None = None
+        self._baud_at_outage: int | None = None
 
         super().__init__(
             hass,
@@ -131,6 +153,70 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
         self._next_expansion_discovery = (
             monotonic() + EXPANSION_DISCOVERY_INTERVAL.total_seconds()
         )
+
+    @property
+    def is_online(self) -> bool:
+        """Whether the last poll reached the amplifier."""
+        return self.offline_since is None and self.last_update_success
+
+    def _next_retry_delay(self) -> float:
+        """Return the backoff delay for the next attempt after a failure."""
+        base = poll_interval(self.entry).total_seconds()
+        delay = base * (2 ** max(0, self.consecutive_failures - 1))
+        return min(delay, MAX_RETRY_INTERVAL)
+
+    def _note_failure(self) -> None:
+        """Open an outage on the first failure and grow the backoff."""
+        self.consecutive_failures += 1
+        if self.offline_since is None:
+            now = datetime.now(UTC)
+            self.offline_since = now
+            self.last_offline_at = now
+            self.outage_count += 1
+            # Captured before recovery negotiates anything, so the comparison
+            # on the way back out is against where the link actually was.
+            self._baud_at_outage = self.gateway.last_known_baud
+            _LOGGER.warning(
+                "Monoprice unreachable; outage %d started (link was at %s baud)",
+                self.outage_count,
+                self._baud_at_outage,
+            )
+        self.retry_delay = self._next_retry_delay()
+
+    def _classify_outage(self) -> str:
+        """Infer whether the amplifier lost power or the serial link dropped.
+
+        The amplifier resets to 9600 whenever it loses power and keeps its
+        configured rate otherwise, so a link that was above 9600 and comes back
+        at 9600 was power cycled, while one that comes back where it was never
+        lost power. Running at 9600 makes the two indistinguishable, which is
+        the honest answer rather than a guess.
+        """
+        before = self._baud_at_outage
+        found = self.gateway.last_detected_baud
+        if before is None or found is None or before == POWER_ON_BAUD_RATE:
+            return CAUSE_UNKNOWN
+        if found == POWER_ON_BAUD_RATE:
+            return CAUSE_POWER_CYCLE
+        if found == before:
+            return CAUSE_LINK_FAULT
+        return CAUSE_UNKNOWN
+
+    def _note_success(self) -> None:
+        """Close any open outage and reset the backoff."""
+        self.consecutive_failures = 0
+        self.retry_delay = None
+        if self.offline_since is None:
+            return
+        self.last_outage_duration = datetime.now(UTC) - self.offline_since
+        self.last_outage_cause = self._classify_outage()
+        _LOGGER.info(
+            "Monoprice reachable again after %.0fs; suspected cause: %s",
+            self.last_outage_duration.total_seconds(),
+            self.last_outage_cause,
+        )
+        self.offline_since = None
+        self._baud_at_outage = None
 
     async def async_refresh_zone(self, zone_id: int) -> None:
         """Refresh one zone and publish it immediately.
@@ -201,17 +287,26 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
                     zones[unit * 10] = first_zone
 
             self.last_successful_poll = datetime.now(UTC)
+            self._note_success()
             return zones
         except _COMMUNICATION_ERRORS as err:
             self._link_ready = False
             self._next_expansion_discovery = 0.0
-            _LOGGER.warning(
-                "Monoprice communication failed; bounded recovery will run on the "
-                "next poll: %s",
+            self._note_failure()
+            _LOGGER.debug(
+                "Monoprice communication failed; retrying in %.0fs: %s",
+                self.retry_delay,
                 err,
             )
-            raise UpdateFailed(f"Error communicating with amplifier: {err}") from err
+            raise UpdateFailed(
+                f"Error communicating with amplifier: {err}",
+                retry_after=self.retry_delay,
+            ) from err
         except Exception as err:
-            raise UpdateFailed(f"Error communicating with amplifier: {err}") from err
+            self._note_failure()
+            raise UpdateFailed(
+                f"Error communicating with amplifier: {err}",
+                retry_after=self.retry_delay,
+            ) from err
         finally:
             self.last_poll_duration = monotonic() - started

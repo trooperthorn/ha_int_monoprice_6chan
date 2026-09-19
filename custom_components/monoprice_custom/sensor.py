@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -12,7 +16,11 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .__init__ import MonopriceConfigEntry
 from .const import CONF_ZONE_NAMES
-from .device import async_ensure_unit_devices, zone_device_info
+from .device import (
+    async_ensure_unit_devices,
+    controller_device_info,
+    zone_device_info,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,6 +53,13 @@ async def async_setup_entry(
             async_add_entities(entities)
             known_units.update(units)
 
+    async_add_entities(
+        [
+            MonopriceLinkSpeedSensor(coordinator, entry.entry_id),
+            MonopriceLastOfflineSensor(coordinator, entry.entry_id),
+        ]
+    )
+
     _add_units(set(coordinator.active_units))
 
     @callback
@@ -52,6 +67,71 @@ async def async_setup_entry(
         _add_units(set(coordinator.active_units) - known_units)
 
     entry.async_on_unload(coordinator.async_add_listener(_async_add_discovered_units))
+
+
+class MonopriceControllerSensor(CoordinatorEntity, SensorEntity):
+    """Base for the amplifier-wide diagnostic sensors.
+
+    Like the connectivity sensor, these stay readable through an outage: the
+    rate the link was last on and when it dropped are most useful precisely
+    when the amplifier is not answering.
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator, entry_id: str, key: str) -> None:
+        """Initialize a controller-level diagnostic sensor."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry_id}_{key}"
+        self._attr_device_info = controller_device_info(entry_id)
+
+    @property
+    def available(self) -> bool:
+        """Always available; an outage is when these matter most."""
+        return True
+
+
+class MonopriceLinkSpeedSensor(MonopriceControllerSensor):
+    """The rate the serial link is actually running at."""
+
+    _attr_name = "Link speed"
+    _attr_translation_key = "link_speed"
+    _attr_native_unit_of_measurement = "Bd"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:speedometer"
+
+    def __init__(self, coordinator, entry_id: str) -> None:
+        """Initialize the link-speed sensor."""
+        super().__init__(coordinator, entry_id, "link_speed")
+
+    @property
+    def native_value(self) -> int:
+        """Return the port's current rate."""
+        return self.coordinator.gateway.current_baud_rate
+
+
+class MonopriceLastOfflineSensor(MonopriceControllerSensor):
+    """When contact with the amplifier was most recently lost.
+
+    Reported as a timestamp rather than an elapsed time so Home Assistant can
+    render "x minutes ago" itself; an elapsed-seconds sensor would only update
+    when a poll ran, and polls are deliberately backed off during an outage.
+    """
+
+    _attr_name = "Last disconnected"
+    _attr_translation_key = "last_disconnected"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:lan-disconnect"
+
+    def __init__(self, coordinator, entry_id: str) -> None:
+        """Initialize the last-disconnected sensor."""
+        super().__init__(coordinator, entry_id, "last_disconnected")
+
+    @property
+    def native_value(self):
+        """Return when the most recent outage began, or None if never."""
+        return self.coordinator.last_offline_at
 
 
 class MonopriceKeypadSensor(CoordinatorEntity, SensorEntity):

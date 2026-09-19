@@ -37,6 +37,11 @@ DRAIN_SETTLE: Final = 0.15
 # rate; clearing before it lands leaves those bytes to be read as the
 # confirmation. Measured threshold on a 10761 is 0.05s.
 BAUD_SETTLE: Final = 0.25
+# The wake sent before a probe draws a reply of its own. Clearing the
+# buffer before it has landed leaves those bytes to be read as the status
+# reply, which makes a probe fail on a port that has just been opened even
+# when the amplifier is answering perfectly.
+PROBE_SETTLE: Final = 0.15
 # The amplifier's rejection reply. It is framed as two EOL sequences, so a
 # control write that reads only its own echo leaves the rejection behind to
 # be read as the next command's answer.
@@ -147,6 +152,10 @@ class MonopriceExtended(Monoprice):
         self._port.reset_input_buffer()
         self._port.reset_output_buffer()
         self._send_request(b"\r\n")
+        # Let the wake's own reply arrive before clearing, or the query below
+        # reads it instead of the status record.
+        sleep(PROBE_SETTLE)
+        self._port.reset_input_buffer()
         try:
             status = self.zone_status(11)
         except Exception:  # noqa: BLE001 - a failed probe is a bounded state

@@ -22,6 +22,7 @@ pytest.importorskip("homeassistant.config_entries")
 
 MODULES = (
     "api",
+    "binary_sensor",
     "config_flow",
     "const",
     "coordinator",

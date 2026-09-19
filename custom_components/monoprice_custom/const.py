@@ -10,6 +10,7 @@ CONF_LAST_KNOWN_BAUD = "last_known_baud"
 CONF_KNOWN_UNITS = "known_units"
 
 PLATFORMS = [
+    Platform.BINARY_SENSOR,
     Platform.MEDIA_PLAYER,
     Platform.SWITCH,
     Platform.SENSOR,

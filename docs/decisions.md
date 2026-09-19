@@ -33,6 +33,46 @@ All six entity services register through `service.async_register_platform_entity
 so they exist before any platform loads (developer blog 2025-09-25). Rejected: the
 deprecated per-platform registration.
 
+## 2026-09-19, failed polls back off, and the connectivity entity never hides
+
+Two decisions from the same problem: what the integration should do while the
+amplifier is not answering.
+
+**Backoff.** A failed poll runs the six-rate recovery sweep, roughly two seconds
+per rate, so retrying at the default five-second interval means the serial line
+is never idle during an outage. `UpdateFailed` takes a `retry_after` and the
+coordinator honours it for the next refresh, so the backoff is expressed by
+passing a growing value on each consecutive failure: the poll interval, then
+doubling to a 120 second cap, reset on the first success. Rejected: a custom
+timer, which would duplicate scheduling the coordinator already owns; and a flat
+long retry, which would make a power cycle take minutes to recover from when the
+amplifier is reachable about eight seconds after power returns.
+
+**The connectivity entity overrides `available`.** A `CoordinatorEntity` reports
+itself unavailable when the coordinator's update fails, which for this entity
+would mean going quiet at the exact moment it has something to say, and leaving
+nothing for an automation to trigger on. It returns `True` unconditionally and
+derives its state from the coordinator instead. The same applies to the link
+speed and last-disconnected sensors: those readings matter most during an
+outage. Rejected: letting them follow the coordinator like every other entity,
+which is right for a zone's volume and wrong for "is it there".
+
+## 2026-09-19, an outage's cause is inferred from the rate it comes back on
+
+Losing power resets the amplifier's link speed to 9600; a serial fault leaves it
+where it was. So a link that was above 9600 and returns at 9600 was power
+cycled, and one that returns at its previous rate never lost power. Both were
+observed in one session: a power cycle the amplifier recovered from in 48
+seconds, and an eight-minute outage at every rate that cleared only when the
+cable was reseated.
+
+`_classify_outage` reports `power_cycle`, `link_fault` or `unknown`, and the
+last one is deliberate rather than a fallback: at 9600 both failures leave the
+amplifier at 9600 and there is genuinely nothing to distinguish them. Rejected:
+guessing from outage duration, which would dress an unreliable signal up as a
+diagnosis. The honest consequence, written down in the README, is that this
+diagnostic only exists if the link is negotiated above 9600.
+
 ## 2026-09-19, this integration targets the 10761 six-zone family, and says so
 
 Zone and source counts stay constants. `range(1, 7)` in the coordinator and
