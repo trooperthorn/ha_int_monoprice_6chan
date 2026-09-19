@@ -16,8 +16,18 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .__init__ import MonopriceConfigEntry
-from .const import CONF_PORT, CONF_SOURCES, CONF_ZONE_NAMES
+from .const import (
+    CONF_ALL_ON_VOLUME,
+    CONF_IGNORE_ZONES,
+    CONF_MAX_VOLUME,
+    CONF_PORT,
+    CONF_SOURCES,
+    CONF_ZONE_NAMES,
+    DEFAULT_ALL_ON_VOLUME,
+    DEFAULT_MAX_VOLUME,
+)
 from .device import async_ensure_unit_devices, zone_device_info
+from .zones import is_master, write_targets
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -159,47 +169,91 @@ class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
     def sound_mode(self) -> str | None:
         return self._sound_mode
 
+    @property
+    def _options(self) -> dict[str, Any]:
+        return self.coordinator.entry.options
+
+    @property
+    def _is_master(self) -> bool:
+        """Whether this entity is a unit's broadcast (N0) address."""
+        return is_master(self._zone_id)
+
+    @property
+    def _max_volume(self) -> int:
+        """Return the configured volume ceiling, clamped to the wire range."""
+        try:
+            configured = int(self._options.get(CONF_MAX_VOLUME, DEFAULT_MAX_VOLUME))
+        except (TypeError, ValueError):
+            return DEFAULT_MAX_VOLUME
+        return max(1, min(configured, int(MAX_VOLUME)))
+
+    @property
+    def _all_on_volume(self) -> int:
+        """Return the volume forced on a master power-on, or 0 when disabled."""
+        try:
+            configured = int(
+                self._options.get(CONF_ALL_ON_VOLUME, DEFAULT_ALL_ON_VOLUME)
+            )
+        except (TypeError, ValueError):
+            return DEFAULT_ALL_ON_VOLUME
+        return max(0, min(configured, self._max_volume))
+
+    def _capped(self, volume: int) -> int:
+        """Clamp a wire volume to the configured ceiling."""
+        return max(0, min(volume, self._max_volume))
+
+    async def _async_send(
+        self, method: str, *args: Any, honour_exclusions: bool = True
+    ) -> None:
+        """Send a command to every zone this entity addresses."""
+        for zone_id in write_targets(
+            self._zone_id,
+            self._options.get(CONF_IGNORE_ZONES),
+            honour_exclusions=honour_exclusions,
+        ):
+            await self.coordinator.gateway.async_execute(method, zone_id, *args)
+
     async def async_turn_on(self) -> None:
-        await self.coordinator.gateway.async_execute("set_power", self._zone_id, True)
+        await self._async_send("set_power", True)
+        # Writes only stick while a zone is on, so the guard volume follows the
+        # power-on rather than preceding it; see docs/protocol.md.
+        if self._is_master and (safe := self._all_on_volume):
+            await self._async_send("set_volume", safe)
         await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_turn_off(self) -> None:
-        await self.coordinator.gateway.async_execute("set_power", self._zone_id, False)
+        # All-off reaches every zone, excluded ones included: an exclusion is
+        # about not being switched on or re-sourced, not about being left on.
+        await self._async_send("set_power", False, honour_exclusions=False)
         await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_mute_volume(self, mute: bool) -> None:
-        await self.coordinator.gateway.async_execute("set_mute", self._zone_id, mute)
+        await self._async_send("set_mute", mute)
         await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_set_volume_level(self, volume: float) -> None:
-        await self.coordinator.gateway.async_execute(
-            "set_volume", self._zone_id, round(volume * MAX_VOLUME)
-        )
+        await self._async_send("set_volume", self._capped(round(volume * MAX_VOLUME)))
         await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_volume_up(self) -> None:
         if self.volume_level is not None:
-            await self.coordinator.gateway.async_execute(
+            await self._async_send(
                 "set_volume",
-                self._zone_id,
-                min(round(self.volume_level * MAX_VOLUME) + 1, int(MAX_VOLUME)),
+                self._capped(round(self.volume_level * MAX_VOLUME) + 1),
             )
             await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_volume_down(self) -> None:
         if self.volume_level is not None:
-            await self.coordinator.gateway.async_execute(
+            await self._async_send(
                 "set_volume",
-                self._zone_id,
                 max(round(self.volume_level * MAX_VOLUME) - 1, 0),
             )
             await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_select_source(self, source: str) -> None:
         if source in self._source_name_id:
-            await self.coordinator.gateway.async_execute(
-                "set_source", self._zone_id, self._source_name_id[source]
-            )
+            await self._async_send("set_source", self._source_name_id[source])
             await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_select_sound_mode(self, sound_mode: str) -> None:
@@ -207,13 +261,14 @@ class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
         bass_level = {"High Bass": 12, "Medium Bass": 10, "Low Bass": 3}.get(
             sound_mode, 7
         )
-        await self.coordinator.gateway.async_execute(
-            "set_bass", self._zone_id, bass_level
-        )
+        await self._async_send("set_bass", bass_level)
         await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_snapshot(self) -> None:
-        self._snapshot = await self.coordinator.gateway.async_zone_status(self._zone_id)
+        # A master id has no readable record of its own, so snapshot the zone
+        # its state already mirrors rather than querying `?N0`.
+        query_id = self._zone_id + 1 if self._is_master else self._zone_id
+        self._snapshot = await self.coordinator.gateway.async_zone_status(query_id)
 
     async def async_restore(self) -> None:
         if self._snapshot:
@@ -221,17 +276,13 @@ class MonopriceZone(CoordinatorEntity, MediaPlayerEntity):
             await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_set_balance(self, balance: int) -> None:
-        await self.coordinator.gateway.async_execute(
-            "set_balance", self._zone_id, balance
-        )
+        await self._async_send("set_balance", balance)
         await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_set_bass(self, bass: int) -> None:
-        await self.coordinator.gateway.async_execute("set_bass", self._zone_id, bass)
+        await self._async_send("set_bass", bass)
         await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_set_treble(self, treble: int) -> None:
-        await self.coordinator.gateway.async_execute(
-            "set_treble", self._zone_id, treble
-        )
+        await self._async_send("set_treble", treble)
         await self.coordinator.async_refresh_zone(self._zone_id)

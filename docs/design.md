@@ -57,6 +57,25 @@ the integration's "Configure" gear icon, no port involved) instead reads
 integration is loaded by the time that flow can even be opened, so the real
 answer is sitting in memory rather than needing a fresh probe.
 
+## Why this integration polls
+
+The amplifier never speaks first. A keypad press or a front-panel turn changes
+zone state with nothing sent over RS-232, so the only way Home Assistant learns
+about it is to ask. That is not true of the whole product lineage: the openHAB
+binding documents Xantech controllers emitting unsolicited zone updates for
+keypad actions, which is why a Xantech driver can sit and listen. The Monoprice
+family does not, and that asymmetry is the entire justification for the polling
+model here.
+
+The interval is the user's to set (`CONF_POLL_INTERVAL`, 5 to 60 seconds,
+default 5). Faster means a keypad press shows up sooner; slower means less
+traffic on a line that may be shared with a serial bridge, and fewer commands
+competing with the ones entity writes need. An installation with no physical
+keypads has almost nothing to discover out of band and can sit at the top of
+the range; there is no separate "disable keypad polling" switch because the
+interval already expresses that, and stopping entirely would also blind the
+integration to front-panel changes.
+
 ## Release trigger
 
 A push to `main` (a merged pull request) is the only release trigger. The version is the

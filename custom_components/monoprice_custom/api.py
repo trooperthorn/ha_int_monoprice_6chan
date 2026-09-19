@@ -37,6 +37,10 @@ DRAIN_SETTLE: Final = 0.15
 # rate; clearing before it lands leaves those bytes to be read as the
 # confirmation. Measured threshold on a 10761 is 0.05s.
 BAUD_SETTLE: Final = 0.25
+# The amplifier's rejection reply. It is framed as two EOL sequences, so a
+# control write that reads only its own echo leaves the rejection behind to
+# be read as the next command's answer.
+COMMAND_ERROR: Final = "Command Error."
 
 
 def _format_set_pa(zone: int, pa: bool) -> bytes:
@@ -63,6 +67,15 @@ def _format_zone_field_status(zone: int, field: str) -> bytes:
     return f"?{zone}{field}\r".encode()
 
 
+class MonopriceCommandError(Exception):
+    """The amplifier answered a command with "Command Error.".
+
+    Raised rather than parsed past: the rejection occupies frames the
+    caller was not expecting, so continuing would read them as some later
+    command's reply. Callers treat it as a resync point.
+    """
+
+
 def _display_name(name: str) -> str:
     """Pad or truncate to the hardware's 8 ASCII characters.
 
@@ -80,6 +93,34 @@ def _display_name(name: str) -> str:
 
 class MonopriceExtended(Monoprice):
     """Monoprice client extended with PA/DND/rename/baud commands."""
+
+    def _process_request(self, request: bytes, num_eols_to_read: int = 1) -> str:
+        """Read a reply, refusing to parse past a rejection.
+
+        `api.py` rejects the bad input it knows about before sending, but a
+        rejection can also arrive from line noise, a partially written frame,
+        or another process on the port. Whatever the cause, the reply is not
+        the shape the caller expected and the rest of it is still queued, so
+        drain and raise instead of handing back something that parses.
+        """
+        response = super()._process_request(request, num_eols_to_read)
+        return self._checked(request, response, drain=True)
+
+    def _checked(self, request: bytes, response: str, *, drain: bool) -> str:
+        """Raise if `response` carries a rejection, draining what follows it.
+
+        A rejection spans two EOL sequences. A command that reads both sees it
+        here immediately. A control write reads only its own echo, so the
+        rejection is still queued: it surfaces either on the drain below or,
+        failing that, prepended to the next command's reply, which is why this
+        check runs on every read rather than only the multi-frame ones.
+        """
+        if COMMAND_ERROR not in response:
+            return response
+        trailing = self._read_pending() if drain else ""
+        raise MonopriceCommandError(
+            f"Amplifier rejected {request!r}: {(response + trailing).strip()}"
+        )
 
     @synchronized
     def wake(self) -> None:
@@ -188,7 +229,10 @@ class MonopriceExtended(Monoprice):
             raise ValueError(
                 f"RS-232 commands must be ASCII only, got {command!r}"
             ) from err
-        return self._process_request(encoded) + self._read_pending()
+        # The drained tail is checked too: a rejection to a single-frame
+        # command lands there, not in the first frame.
+        response = self._process_request(encoded) + self._read_pending()
+        return self._checked(encoded, response, drain=False)
 
     @synchronized
     def set_baud_rate(self, baud: int) -> bool:

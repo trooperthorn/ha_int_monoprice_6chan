@@ -15,6 +15,12 @@ from pymonoprice import ZoneStatus
 SUPPORTED_BAUD_RATES: Final = (9600, 19200, 38400, 57600, 115200, 230400)
 POWER_ON_BAUD_RATE: Final = 9600
 VALIDATION_TIMEOUT: Final = 0.75
+# Room before each expansion-unit probe. A probe that times out is read as
+# "unit absent", so a unit that is merely slow to answer would lose its
+# entities until the next rediscovery. jnewland/mpr-6zhmaut-api spaces the
+# equivalent startup queries by a full second; this matches it rather than
+# leaning on the gateway's much smaller inter-command floor.
+EXPANSION_PROBE_SPACING: Final = 1.0
 _COM_PORT = re.compile(r"^COM\d+$", re.IGNORECASE)
 
 # A character device that exists but cannot be configured as a UART - a
@@ -46,6 +52,15 @@ class CannotOpenPort(MonopriceValidationError):
 
 class NotMonopriceDevice(MonopriceValidationError):
     """The submitted endpoint did not return a valid Monoprice response."""
+
+
+class PortPermissionDenied(CannotOpenPort):
+    """The endpoint exists but this user may not open it.
+
+    A subclass of CannotOpenPort so existing handlers keep working, raised
+    separately so the config flow can say which of the two problems it is:
+    on Linux the service user usually just needs the dialout group.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,8 +120,10 @@ def _detect_expansion_units(port: serialx.BaseSerial) -> tuple[int, ...]:
     units are numbered contiguously, so there is no unit 3 without a unit 2.
     """
     units = [1]
+    sleep(EXPANSION_PROBE_SPACING)
     if _probe_zone(port, 21):
         units.append(2)
+        sleep(EXPANSION_PROBE_SPACING)
         if _probe_zone(port, 31):
             units.append(3)
     return tuple(units)
@@ -136,6 +153,8 @@ def validate_monoprice_endpoint(
     except _PORT_ERRORS as err:
         if port is not None and not port.closed:
             port.close()
+        if isinstance(err, PermissionError):
+            raise PortPermissionDenied(port_url) from err
         raise CannotOpenPort(port_url) from err
 
     try:
@@ -165,6 +184,8 @@ def validate_monoprice_endpoint(
     except (TimeoutError, EOFError) as err:
         raise NotMonopriceDevice(port_url) from err
     except _PORT_ERRORS as err:
+        if isinstance(err, PermissionError):
+            raise PortPermissionDenied(port_url) from err
         raise CannotOpenPort(port_url) from err
     finally:
         if not port.closed:

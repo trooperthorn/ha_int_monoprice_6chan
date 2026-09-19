@@ -1,7 +1,12 @@
 # TODO — findings from external Monoprice / clone implementations
 
 Research-only when written. Items checked off have since been applied; the
-rest are still flags for a human decision. Where an item contradicts a statement in
+rest are still flags for a human decision.
+
+As of 2026-09-19 every item in **A. Contradictions** and **B. Gaps in the
+current implementation** is closed, apart from one that cannot be closed here:
+B6's hardware question needs expansion units this bench does not have.
+Sections C, D and E remain open. Where an item contradicts a statement in
 `docs/protocol.md` or behaviour in `custom_components/monoprice_custom/`,
 the contradiction is named explicitly rather than silently "fixed".
 
@@ -15,16 +20,25 @@ Current implementation read as of `198f408` (v2026.09.18.1).
 | S1 | [jnewland/mpr-6zhmaut-api](https://github.com/jnewland/mpr-6zhmaut-api) | Yes (README, `app.js`, `updateBaudRate.js`) | Node JSON API over the 10761 serial port |
 | S2 | [martinezmp3 Hubitat driver](https://github.com/martinezmp3/Hubitat-Monoprice-6-zone-controller-TCP-IP-Serial/blob/master/Child-MonoPrice-6-Zone-Amp-Controller.groovy) | Yes | Hubitat child driver, serial-over-TCP |
 | S3 | [openHAB `monopriceaudio` binding docs](https://v2.openhab.org/addons/bindings/monopriceaudio/) | Docs site blocked by egress proxy; read the same content from the binding's own `README.md` and Java source in `openhab/openhab-addons` | Multi-model binding |
-| S4 | [openHAB community thread 1693 (page 3)](https://community.openhab.org/t/monoprice-6-zone-audio-amp-items-sitemap-rules/1693?page=3) | **Not reachable** — `community.openhab.org` is blocked by the egress proxy | Items/sitemap/rules tutorial thread |
-| S5 | [openHAB community thread 128924](https://community.openhab.org/t/monoprice-dayton-audio-xantech-whole-house-audio-binding-beta-3-2-0-4-0-0/128924) | **Not reachable** — same block | Binding beta thread |
+| S4 | [openHAB community thread 1693 (page 3)](https://community.openhab.org/t/monoprice-6-zone-audio-amp-items-sitemap-rules/1693?page=3) | Yes (read 2026-09-19) | Items/sitemap/rules tutorial thread |
+| S5 | [openHAB community thread 128924](https://community.openhab.org/t/monoprice-dayton-audio-xantech-whole-house-audio-binding-beta-3-2-0-4-0-0/128924) | Yes (read 2026-09-19) | Binding beta thread |
 | S6 | [rsnodgrass/pyxantech](https://github.com/rsnodgrass/pyxantech) | Yes (README, `protocols/*.yaml`, `series/*.yaml`, `docs/dax88-rs232.txt`, `protocol.py`) | Multi-vendor Python RS-232 library |
 
-- [ ] **S4 and S5 were never read.** Both openHAB community URLs are blocked
-  at the network egress proxy in this environment, so every community-thread
-  claim below comes from the binding's own README/source (S3) rather than the
-  threads. Anything the threads say that the binding does not encode is still
-  unreviewed. Re-run this research from a network that can reach
-  `community.openhab.org`, or paste the thread contents in.
+- [x] **S4 and S5 have now been read (2026-09-19).** Both openHAB community
+  URLs were blocked at the egress proxy when this file was written; they are
+  reachable now and were fetched and compared against this file. **Neither adds
+  anything new.** Every fact they carry was already reconstructed correctly
+  from the binding's own README/source (S3):
+  - S4's protocol detail is almost entirely the **31028 / PAM1270** (`!1PR1+\r`,
+    `?1ZS+\r`, `#1ZS VO.. PO.. MU.. IS..+`, single-digit zones, no master),
+    which D4 already records as a different, incompatible 70-volt unit. Its one
+    general point, 300-600 ms between commands, is the same topic as B1, where
+    S6 gives the better-sourced 400 ms to 50 ms history.
+  - S5 yields the ser2net line `9600 8DATABITS NONE 1STOPBIT LOCAL` (already
+    quoted verbatim in B8), the built-in serial-over-IP port 8080 (B8), and a
+    5-60 s polling interval defaulting to 15 s (B2).
+
+  No item in this file needed revising as a result.
 
 ---
 
@@ -50,8 +64,10 @@ zone, pa, power, mute, do_not_disturb, volume, treble, bass, balance, source, ke
   `aa:PA bb:Power cc:Mute dd:DT ee:Volume ff:Treble gg:Bass hh:Balance ii:Source jj:Keypad`.
 - `pymonoprice.ZoneStatus`, which this integration relies on, matches the majority.
 
-- [ ] **No change needed to our code — record that the divergence is
-  pyxantech's bug, not ours**, so a future reader comparing the two does not
+- [x] **Done.** `docs/protocol.md`'s status-framing section now names
+  `pyxantech/protocols/monoprice.yaml` as an unreliable reference for field
+  order, including its 1-character `dnd` group. Recorded that the divergence is
+  pyxantech's bug, not ours, so a future reader comparing the two does not
   "correct" `pymonoprice`'s ordering. Worth a line in `docs/protocol.md`'s
   status-framing section naming `pyxantech/protocols/monoprice.yaml` as an
   unreliable reference for field order (its `dnd` group is also 1 character
@@ -74,14 +90,14 @@ S3 models `page` as a read-only `Contact` channel and offers no page write at
 all. S1 exposes `pa` on `GET` and `POST`, but never demonstrates a working
 `POST`. S6 defines no PA command in any protocol YAML.
 
-- [ ] Decide whether `MonopricePASwitch` should stay a `switch` that sends a
-  command no known implementation believes will work, or become a read-only
-  `binary_sensor` mirroring the +12V paging input. If it stays a switch,
-  soften the "in case other firmware honors it" rationale — there is no
-  firmware in any of these sources that honors it.
-- [ ] Either way, document the +12V trigger input as the actual way to page,
-  in `README.md` troubleshooting and `docs/protocol.md`. Users currently have
-  no way to learn this from the repository.
+- [x] **Decided: it stays a switch, and the rationale is softened.** Removing
+  it or moving it to `binary_sensor` breaks existing dashboards for a fact no
+  source disputes but none tested either. It still sends the command and reads
+  the flag back, and `switch.py` no longer claims other firmware might honor it
+  - it says no known implementation does. Recorded in `docs/decisions.md`.
+- [x] **Done.** `docs/protocol.md` names the +12V trigger as the only route,
+  across the 10761/DAX66/44519/44518, and `README.md`'s limitations entry tells
+  the user to drive it. The raised error names it too.
 
 ### A3. `docs/protocol.md` is internally inconsistent about `?N0`'s frame count
 
@@ -91,8 +107,9 @@ be true (one leading marker frame + six records), but as written they read as
 a contradiction. S1 corroborates six *records*: `queryControllers()` writes
 `?<n>0\r` and polls until exactly `6 * i` zone objects have been parsed.
 
-- [ ] Reword the table row so the marker frame and the six record frames are
-  distinguished, and cross-reference the "one per zone" claim to the six.
+- [x] **Done.** The table row reads "7: one leading marker frame plus one
+  record per zone", and the prose distinguishes seven EOL frames from six
+  records, citing `queryControllers()` for the six.
 
 ### A4. Zone id 17/18 rejection is model-scoped, not protocol-scoped
 
@@ -101,8 +118,8 @@ answer `Command Error.`. That is correct for the 10761, but S3 defines a
 `monoprice8` thing type (Monoprice 44518) whose valid zone ids are
 `11..18, 21..28, 31..38`, and a `monoprice4` type (44519) with `11..14` only.
 
-- [ ] Re-scope that table row to "on the 10761 / 6-zone units", so the fact is
-  not later read as a protocol invariant blocking 4-zone and 8-zone support.
+- [x] **Done.** Re-scoped to 6-zone units, with a paragraph stating the limit
+  is model-scoped and naming the 4-zone and 8-zone relatives.
 
 ---
 
@@ -122,10 +139,11 @@ a roadmap item to try 10 ms "if there are no bug reports of the 50 ms drop".
 queries every 5 seconds, and `media_player.py` follows every setter with an
 immediate `async_refresh_zone`.
 
-- [ ] Evaluate adding a ~50 ms floor between writes in the gateway. This is
-  the single most widely-agreed timing constant across the sources and the
-  most likely explanation for intermittent timeouts or frame desync on slower
-  adapters and serial-over-IP bridges.
+- [x] **Done.** `gateway.py::MIN_COMMAND_INTERVAL` is 0.05 s, held inside the
+  I/O lock by `_async_hold_command_floor` and measured from when the previous
+  command *finished*, so a slow command does not get a second delay stacked on
+  it. A command that raised still spaces the next one. Measured on a 10761: a
+  six-zone poll goes from 0.22 s to 0.47 s, well inside the 5 s interval.
 
 ### B2. Poll interval is hard-coded at 5 s, with no way to slow it down
 
@@ -138,13 +156,15 @@ poll by 10 s after startup (`INITIAL_POLLING_DELAY_SEC = 10`). S2 defines a
 `pollSchedule()` method whose body is entirely commented out — i.e. that
 driver ships with no polling at all.
 
-- [ ] Consider a `pollingInterval` option (5–60 s) in the options flow.
-- [ ] Consider a "no physical keypads" option that lengthens or suppresses
-  routine polling, since keypad-driven changes are the only reason to poll.
-- [ ] Note in `docs/design.md` why we poll at all: S3 states that *Xantech*
-  amps emit unsolicited zone updates for keypad actions, and the Monoprice
-  family does not. That asymmetry is the justification for our polling model
-  and is not written down anywhere.
+- [x] **Done.** `CONF_POLL_INTERVAL`, 5-60 s, default 5 (unchanged behaviour
+  for existing entries), on the options and reconfigure forms; the coordinator
+  reads it through `poll_interval()` and the entry reloads on change.
+- [x] **Covered by the interval instead.** A separate switch would overlap it
+  and, taken to "suppress", would also blind the integration to front-panel
+  changes, which are not keypad-driven. An installation with no keypads sets
+  60 s. Rationale in `docs/design.md`.
+- [x] **Done.** `docs/design.md` gains "Why this integration polls", naming
+  the Xantech/Monoprice asymmetry as the justification.
 
 ### B3. No `ignoreZones` equivalent for the master (broadcast) entities
 
@@ -158,9 +178,12 @@ never be switched on or re-sourced by a broadcast (a bathroom, an outdoor
 zone, a zone with no speakers attached). The all-off case is deliberately
 exempt.
 
-- [ ] Consider an `ignore_zones` option. Because `<N0..` broadcasts in the
-  amplifier's own firmware, honouring an exclusion list means iterating zones
-  instead of broadcasting — a real design decision, not a small change.
+- [x] **Done.** `CONF_IGNORE_ZONES`, chosen on the zone-names step where the
+  real zone ids are known. `zones.py::write_targets` is the one place that
+  decides addressing: no list means the single broadcast is kept, a list means
+  the remaining zones are addressed individually. All-off ignores the list,
+  matching S3's "except All Off". Applies to power, volume, source, tone, PA
+  and DND masters.
 
 ### B4. No volume guard on broadcast writes
 
@@ -171,9 +194,10 @@ sound". S2 clamps volume to a user-settable `MaxVolumen` (default 38).
 `media_player.py` maps volume linearly onto `MAX_VOLUME = 38.0` with no cap,
 and a master-zone volume write goes to six zones at once.
 
-- [ ] Consider a maximum-volume option, and/or a reset-to-safe-level on
-  master power-on. Six zones jumping to whatever the master was last set to is
-  the failure mode S3 designed `initialAllVolume` around.
+- [x] **Both.** `CONF_MAX_VOLUME` (1-38, default 38) clamps every volume this
+  integration sends, and `CONF_ALL_ON_VOLUME` (0-38, default 0 = off) forces a
+  level on the zones a master power-on reaches. The reset is sent after the
+  power-on, because writes do not stick to a powered-off zone.
 
 ### B5. Zone and source counts are hard-coded to 6
 
@@ -184,9 +208,11 @@ and a master-zone volume write goes to six zones at once.
 Same-protocol hardware with different counts (see §D): 44519 is 4 zones,
 44518 is 8 zones, DAX88 is 8 zones **and 8 sources**, Xantech is 8 sources.
 
-- [ ] If the integration is ever to cover more than the 10761 family, zone
-  count and source count have to become per-entry configuration rather than
-  constants. Flagging the extent of the change, not proposing it.
+- [x] **Scope written down instead.** The counts stay constants and
+  `docs/decisions.md` now states the supported hardware as the 10761 six-zone
+  family, names the 4/8-zone relatives and the incompatible 31028 and Xantech
+  lines, and records what covering them would cost. `README.md` carries the
+  short version. This also answers D4's scope-statement item.
 
 ### B6. Expansion-unit discovery sends its probes back-to-back
 
@@ -205,11 +231,18 @@ if (AmpCount >= 3) { setTimeout(function(){ connection.write("?30\r"); }, 2000);
 S3 does not auto-detect at all — the user declares `numZones` in the thing
 configuration.
 
-- [ ] Test whether a slaved unit 2/3 can be missed by the immediate probe on
-  real hardware with expansion units attached (`docs/protocol.md` records the
-  whole verification was done on **one** 10761 with no expansion units, so
-  this path has never been exercised against the hardware it exists for).
-  A false negative here silently removes 6 or 12 zones.
+- [x] **Spacing added.** `serial.py::EXPANSION_PROBE_SPACING` is 1.0 s,
+  matching S1, and is waited out before each probe on both paths:
+  `coordinator.py::_async_discover_active_units` and
+  `serial.py::_detect_expansion_units`. Endpoint validation goes from 0.88 s to
+  1.88 s on a single-unit amplifier, paid once at setup and at each
+  rediscovery.
+- [ ] **Still untested against expansion hardware.** Whether a slaved unit 2/3
+  was ever actually missed by the old immediate probe cannot be confirmed here:
+  the bench has **one** 10761 and no expansion units, so this path has still
+  never been exercised against the hardware it exists for. The spacing above is
+  a precaution taken on S1's precedent, not a fix validated against a
+  reproduction. A false negative here silently removes 6 or 12 zones.
 
 ### B7. `Command Error.` is never detected as a desync signal
 
@@ -223,8 +256,12 @@ arriving from any other cause (line noise, a partially written frame, a
 foreign process on the port) leaves the buffer desynced with nothing watching
 for it.
 
-- [ ] Consider matching `Command Error.` in replies and forcing a buffer
-  drain / `_link_ready = False` resync rather than parsing onward.
+- [x] **Done.** `MonopriceExtended._process_request` raises
+  `MonopriceCommandError` on any reply containing `Command Error.`, draining
+  whatever else the rejection queued first. The coordinator treats it like a
+  link fault, so `_link_ready` drops and the next poll re-probes. Detection
+  works on the following command too, since a rejection left behind by a
+  one-frame control write shows up prepended to the next reply.
 
 ### B8. Serial-over-IP is supported but undocumented
 
@@ -254,8 +291,10 @@ over IP on port **8080**. S6 tested the DAX66 over RS232-over-IP with socat.
 S1's author now recommends [`remserial`](https://github.com/jnewland/remserial)
 plus the core Home Assistant integration in place of their own project.
 
-- [ ] Add a serial-over-IP section to `README.md` with a `socket://host:port`
-  example and one ser2net config.
+- [x] **Done.** `README.md` gains a Serial over IP section with the
+  `socket://host:port` form, both ser2net generations, the built-in port 8080
+  note, and the two gotchas (bridge rate wins over the target link speed;
+  `kickolduser` stops a stale connection holding the port).
 - [x] Review what our baud machinery means over a bridge. `gateway.py::
   _ensure_link_sync` and `api.py::set_baud_rate` manipulate `self._port.baudrate`,
   which over `socket://` changes nothing on the far side of the bridge — the
@@ -274,9 +313,10 @@ adapters on one host can swap device nodes.
 half. The permission half is missing, and `serial.py::_PORT_ERRORS` catches
 `PermissionError` into a generic "cannot connect".
 
-- [ ] Add `dialout` guidance to `README.md` troubleshooting, and consider a
-  distinct config-flow error string for `PermissionError` so the user is told
-  which of the two problems they have.
+- [x] **Both.** `serial.py` raises `PortPermissionDenied` (a `CannotOpenPort`
+  subclass, so existing handlers still work) and the config flow shows a
+  `permission_denied` string naming the `dialout` group. `README.md`
+  troubleshooting has the `usermod` line and the Home Assistant OS case.
 
 ---
 
@@ -361,8 +401,9 @@ the baud-rate switch — appear in **no** other implementation except the baud
 switch in S1. Worth noting as a genuine differentiator, and as a reason our
 `docs/protocol.md` is the only written record of the rename framing.
 
-- [ ] If a "supported hardware" section is ever added to `README.md`, the
-  39261, DAX66, WS66i and generic-clone rows above are the defensible list.
+- [x] **Done.** `README.md`'s limitations section now states the supported
+  hardware as the 10761 family plus DAX66, 39261, WS66i and the generic clones,
+  and names what will not work.
 
 ### D2. Same commands, different reply framing — would break our reader
 
@@ -428,10 +469,9 @@ S6's README records the lineage that explains the family resemblance:
 > copied the serial interface from Xantech. Both Monoprice and Dayton Audio
 > use a version of the Xantech multi-zone controller protocol.
 
-- [ ] Decide and write down a scope statement: this integration targets the
-  Monoprice 10761 family (D1) and nothing else. Without one, the resemblance
-  above invites bug reports from DAX88/Xantech owners whose hardware was never
-  in scope.
+- [x] **Done.** `docs/decisions.md` carries the scope statement, naming the
+  4-zone and 8-zone relatives as out of scope for a stated reason (hard-coded
+  counts) and the 31028 and Xantech lines as incompatible framing.
 
 ### D5. Xantech cabling gotcha (for the scope statement's "why not")
 
@@ -461,8 +501,10 @@ All four sources agree, and this matches `serial.py`'s
 | Flow control | None / local | — | `LOCAL` | — | None |
 | Command terminator | `\r` (0x0D) | Yes | Yes | Yes | "required" |
 
-- [ ] One thing we do not set: **flow control**. S3's ser2net examples pass
-  `LOCAL` (no hardware flow control) explicitly, and the DAX88 manual states
-  "Flow Control: None". `serial.py` leaves `rtscts`/`xonxoff` at whatever
-  `serialx` defaults to. Confirm the default is off; if the default ever
-  changes, a hardware-handshake-expecting port would hang with no diagnostic.
+- [x] **Nothing to set, and nothing to confirm.** Checked against serialx
+  1.10.0: `serial_for_url` takes only `(url, *args, **kwargs)` and an opened
+  port exposes no `rtscts`, `xonxoff`, `dsrdtr` or `flow_control` attribute at
+  all. This item was shaped by pyserial's API, which serialx does not carry
+  over, so there is no knob to set and no default to verify. If serialx ever
+  adds one, the DAX88 manual's "Flow Control: None" and S3's `LOCAL` are the
+  values to match. The ser2net side is documented in `README.md`.

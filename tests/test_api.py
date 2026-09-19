@@ -197,5 +197,54 @@ class TestKeypadTextValidation(unittest.TestCase):
         self.assertEqual(api._display_name("LongerThanEight"), "LongerTh")
 
 
+class TestRejectionHandling(unittest.TestCase):
+    """A rejection is a resync point, not something to parse past.
+
+    "Command Error." spans two EOL sequences. Parsing on would read the second
+    one as some later command's reply, which is the desync the rest of this
+    module is built to avoid.
+    """
+
+    def _client(self, response, pending=b""):
+        client = object.__new__(api.MonopriceExtended)
+        client._lock = RLock()
+        client._port = SimpleNamespace(
+            in_waiting=len(pending), read=Mock(return_value=pending)
+        )
+        return client
+
+    def test_rejection_in_the_first_frame_raises(self):
+        client = self._client("")
+        with (
+            patch.object(api, "sleep"),
+            self.assertRaises(api.MonopriceCommandError),
+        ):
+            client._checked(b"?1\r", "?1\r\n#\r\nCommand Error.\r\n#", drain=True)
+
+    def test_a_clean_reply_passes_through_untouched(self):
+        client = self._client("")
+        reply = "?11\r\n#>1100000000120707100100\r\r\n#"
+        self.assertEqual(client._checked(b"?11\r", reply, drain=True), reply)
+
+    def test_the_rejection_message_names_the_command(self):
+        client = self._client("")
+        with (
+            patch.object(api, "sleep"),
+            self.assertRaises(api.MonopriceCommandError) as caught,
+        ):
+            client._checked(b"<99VO10\r", "\r\nCommand Error.\r\n#", drain=False)
+        self.assertIn("<99VO10", str(caught.exception))
+
+    def test_drain_pulls_the_rest_of_the_rejection_off_the_line(self):
+        # Leaving the second frame queued is exactly the desync being avoided.
+        client = self._client("", pending=b"\r\nCommand Error.\r\n#")
+        with (
+            patch.object(api, "sleep"),
+            self.assertRaises(api.MonopriceCommandError),
+        ):
+            client._checked(b"?1\r", "?1\r\n#Command Error.", drain=True)
+        client._port.read.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

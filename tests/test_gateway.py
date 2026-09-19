@@ -9,7 +9,8 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
 
 PACKAGE_ROOT = Path(__file__).parents[1] / "custom_components" / "monoprice_custom"
 package = sys.modules.setdefault("monoprice_custom", ModuleType("monoprice_custom"))
@@ -136,6 +137,52 @@ class TestGatewayLifecycle(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(api.probes, [9600])
         self.assertEqual(api.switches, [38400])
         self.assertEqual(gateway.reconnect_count, 1)
+
+
+class TestCommandFloor(unittest.IsolatedAsyncioTestCase):
+    """The lock stops commands overlapping; it does not space them apart.
+
+    pyxantech enforces a minimum interval on every series it supports to keep
+    the amplifier from timing out when commands arrive faster than it answers.
+    """
+
+    @staticmethod
+    def _gateway():
+        api = SimpleNamespace(current_baud_rate=9600, noop=lambda: None)
+        return gateway_module.MonopriceGateway(FakeHass(), api), api
+
+    async def test_consecutive_commands_are_spaced(self) -> None:
+        gateway, api = self._gateway()
+        with patch.object(gateway_module, "MIN_COMMAND_INTERVAL", 0.05):
+            await gateway._async_locked_call(api.noop)
+            started = time.monotonic()
+            await gateway._async_locked_call(api.noop)
+            elapsed = time.monotonic() - started
+        self.assertGreaterEqual(elapsed, 0.05)
+
+    async def test_first_command_is_not_delayed(self) -> None:
+        gateway, api = self._gateway()
+        with patch.object(gateway_module, "MIN_COMMAND_INTERVAL", 0.5):
+            started = time.monotonic()
+            await gateway._async_locked_call(api.noop)
+            elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 0.5)
+
+    async def test_a_failed_command_still_spaces_the_next_one(self) -> None:
+        # The floor exists to protect the amplifier, so a command that raised
+        # must not let the next one follow immediately.
+        gateway, api = self._gateway()
+
+        def boom():
+            raise OSError("no reply")
+
+        with patch.object(gateway_module, "MIN_COMMAND_INTERVAL", 0.05):
+            with self.assertRaises(OSError):
+                await gateway._async_locked_call(boom)
+            started = time.monotonic()
+            await gateway._async_locked_call(api.noop)
+            elapsed = time.monotonic() - started
+        self.assertGreaterEqual(elapsed, 0.05)
 
 
 if __name__ == "__main__":

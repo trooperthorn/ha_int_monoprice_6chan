@@ -14,13 +14,23 @@ from homeassistant.components.usb import USBDevice
 from homeassistant.config_entries import ConfigEntry, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_PORT
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.selector import SerialPortSelector
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SerialPortSelector,
+)
 
 from .const import (
+    CONF_ALL_ON_VOLUME,
     CONF_BAUD_RATE,
     CONF_DEVICE_IDENTITY,
     CONF_IDENTITY_KIND,
+    CONF_IGNORE_ZONES,
     CONF_LAST_KNOWN_BAUD,
+    CONF_MAX_VOLUME,
+    CONF_POLL_INTERVAL,
     CONF_SOURCE_1,
     CONF_SOURCE_2,
     CONF_SOURCE_3,
@@ -29,7 +39,13 @@ from .const import (
     CONF_SOURCE_6,
     CONF_SOURCES,
     CONF_ZONE_NAMES,
+    DEFAULT_ALL_ON_VOLUME,
+    DEFAULT_MAX_VOLUME,
+    DEFAULT_POLL_INTERVAL,
     DOMAIN,
+    MAX_POLL_INTERVAL,
+    MAX_VOLUME_STEPS,
+    MIN_POLL_INTERVAL,
 )
 from .serial import (
     POWER_ON_BAUD_RATE,
@@ -37,6 +53,7 @@ from .serial import (
     CannotOpenPort,
     EndpointIdentity,
     NotMonopriceDevice,
+    PortPermissionDenied,
     ValidationResult,
     canonicalize_endpoint,
     endpoint_identity,
@@ -87,12 +104,23 @@ def _source_form_key(
     return vol.Optional(source)
 
 
+def _number_selector(minimum: int, maximum: int) -> NumberSelector:
+    """Return a whole-number slider for one of the numeric options."""
+    return NumberSelector(
+        NumberSelectorConfig(
+            min=minimum, max=maximum, step=1, mode=NumberSelectorMode.BOX
+        )
+    )
+
+
 def _options_schema(
     sources: dict[str, Any] | None = None,
     target_baud: int = POWER_ON_BAUD_RATE,
+    options: dict[str, Any] | None = None,
 ) -> vol.Schema:
-    """Build the shared sources and target-baud form schema."""
+    """Build the shared sources, link-speed, and behaviour form schema."""
     previous_sources = sources or {}
+    previous = options or {}
     fields: dict[Any, Any] = {
         _source_form_key(source, index, previous_sources): str
         for index, source in enumerate(SOURCES, start=1)
@@ -100,7 +128,34 @@ def _options_schema(
     fields[vol.Required(CONF_BAUD_RATE, default=target_baud)] = vol.In(
         SUPPORTED_BAUD_RATES
     )
+    fields[
+        vol.Required(
+            CONF_POLL_INTERVAL,
+            default=previous.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL),
+        )
+    ] = _number_selector(MIN_POLL_INTERVAL, MAX_POLL_INTERVAL)
+    fields[
+        vol.Required(
+            CONF_MAX_VOLUME,
+            default=previous.get(CONF_MAX_VOLUME, DEFAULT_MAX_VOLUME),
+        )
+    ] = _number_selector(1, MAX_VOLUME_STEPS)
+    fields[
+        vol.Required(
+            CONF_ALL_ON_VOLUME,
+            default=previous.get(CONF_ALL_ON_VOLUME, DEFAULT_ALL_ON_VOLUME),
+        )
+    ] = _number_selector(0, MAX_VOLUME_STEPS)
     return vol.Schema(fields)
+
+
+def _behaviour_from_config(data: dict[str, Any]) -> dict[str, int]:
+    """Pull the numeric behaviour settings out of a submitted options form."""
+    return {
+        CONF_POLL_INTERVAL: int(data.pop(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)),
+        CONF_MAX_VOLUME: int(data.pop(CONF_MAX_VOLUME, DEFAULT_MAX_VOLUME)),
+        CONF_ALL_ON_VOLUME: int(data.pop(CONF_ALL_ON_VOLUME, DEFAULT_ALL_ON_VOLUME)),
+    }
 
 
 def _zone_ids_for_units(units: tuple[int, ...]) -> list[int]:
@@ -119,13 +174,35 @@ def _zone_name_form_key(zone_id: int, previous_names: dict[str, Any]) -> vol.Opt
 
 
 def _zone_names_schema(
-    zone_ids: list[int], previous_names: dict[str, Any] | None = None
+    zone_ids: list[int],
+    previous_names: dict[str, Any] | None = None,
+    previous_ignored: list[Any] | None = None,
 ) -> vol.Schema:
-    """Build one optional room-name field per detected zone."""
+    """Build one optional room-name field per detected zone, plus exclusions.
+
+    The exclusion list belongs on this step because it is the first point in
+    either flow where the real zone ids are known.
+    """
     previous = previous_names or {}
-    return vol.Schema(
-        {_zone_name_form_key(zone_id, previous): str for zone_id in zone_ids}
-    )
+    fields: dict[Any, Any] = {
+        _zone_name_form_key(zone_id, previous): str for zone_id in zone_ids
+    }
+    fields[
+        vol.Optional(
+            CONF_IGNORE_ZONES,
+            default=[
+                str(zone_id)
+                for zone_id in zone_ids
+                if str(zone_id) in {str(value) for value in (previous_ignored or [])}
+            ],
+        )
+    ] = cv.multi_select({str(zone_id): f"Zone {zone_id}" for zone_id in zone_ids})
+    return vol.Schema(fields)
+
+
+def _ignored_from_config(data: dict[str, Any]) -> list[str]:
+    """Return the submitted exclusion list as stored zone-id strings."""
+    return [str(value) for value in data.get(CONF_IGNORE_ZONES, [])]
 
 
 def _zone_names_from_config(
@@ -306,6 +383,8 @@ class MonopriceConfigFlow(  # type: ignore[call-arg]
                     self._submitted_port,
                     self._reconfigure_entry,
                 )
+            except PortPermissionDenied:
+                errors["base"] = "permission_denied"
             except CannotOpenPort:
                 errors["base"] = "cannot_connect"
             except NotMonopriceDevice:
@@ -350,9 +429,11 @@ class MonopriceConfigFlow(  # type: ignore[call-arg]
         if user_input is not None:
             form_data = dict(user_input)
             target_baud = int(form_data.pop(CONF_BAUD_RATE))
+            behaviour = _behaviour_from_config(form_data)
             self._pending_options = {
                 CONF_SOURCES: _sources_from_config(form_data),
                 CONF_BAUD_RATE: target_baud,
+                **behaviour,
             }
             return await self.async_step_zone_names()
 
@@ -385,7 +466,11 @@ class MonopriceConfigFlow(  # type: ignore[call-arg]
                     CONF_IDENTITY_KIND: self._prepared.identity.kind,
                     CONF_LAST_KNOWN_BAUD: self._prepared.detected_baud,
                 },
-                options={**self._pending_options, CONF_ZONE_NAMES: zone_names},
+                options={
+                    **self._pending_options,
+                    CONF_ZONE_NAMES: zone_names,
+                    CONF_IGNORE_ZONES: _ignored_from_config(user_input),
+                },
             )
 
         return self.async_show_form(
@@ -403,20 +488,21 @@ class MonopriceConfigFlow(  # type: ignore[call-arg]
         if user_input is not None:
             form_data = dict(user_input)
             target_baud = int(form_data.pop(CONF_BAUD_RATE))
+            behaviour = _behaviour_from_config(form_data)
             self._pending_options = {
                 **self._reconfigure_entry.options,
                 CONF_SOURCES: _sources_from_config(form_data),
                 CONF_BAUD_RATE: target_baud,
+                **behaviour,
             }
             return await self.async_step_reconfigure_zone_names()
 
-        sources = self._reconfigure_entry.options.get(CONF_SOURCES, {})
-        target_baud = self._reconfigure_entry.options.get(
-            CONF_BAUD_RATE, self._prepared.detected_baud
-        )
+        options = dict(self._reconfigure_entry.options)
+        sources = options.get(CONF_SOURCES, {})
+        target_baud = options.get(CONF_BAUD_RATE, self._prepared.detected_baud)
         return self.async_show_form(
             step_id="reconfigure_options",
-            data_schema=_options_schema(sources, target_baud),
+            data_schema=_options_schema(sources, target_baud, options),
         )
 
     async def async_step_reconfigure_zone_names(
@@ -432,6 +518,7 @@ class MonopriceConfigFlow(  # type: ignore[call-arg]
 
         zone_ids = _zone_ids_for_units(self._prepared.detected_units)
         previous_names = self._reconfigure_entry.options.get(CONF_ZONE_NAMES, {})
+        previous_ignored = self._reconfigure_entry.options.get(CONF_IGNORE_ZONES, [])
 
         if user_input is not None:
             zone_names = _zone_names_from_config(user_input, zone_ids)
@@ -443,12 +530,16 @@ class MonopriceConfigFlow(  # type: ignore[call-arg]
                     CONF_IDENTITY_KIND: self._prepared.identity.kind,
                     CONF_LAST_KNOWN_BAUD: self._prepared.detected_baud,
                 },
-                options={**self._pending_options, CONF_ZONE_NAMES: zone_names},
+                options={
+                    **self._pending_options,
+                    CONF_ZONE_NAMES: zone_names,
+                    CONF_IGNORE_ZONES: _ignored_from_config(user_input),
+                },
             )
 
         return self.async_show_form(
             step_id="reconfigure_zone_names",
-            data_schema=_zone_names_schema(zone_ids, previous_names),
+            data_schema=_zone_names_schema(zone_ids, previous_names, previous_ignored),
         )
 
     @staticmethod
@@ -480,20 +571,23 @@ class MonopriceOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             form_data = dict(user_input)
             target_baud = int(form_data.pop(CONF_BAUD_RATE))
+            behaviour = _behaviour_from_config(form_data)
             self._pending_options = {
                 **self.config_entry.options,
                 CONF_SOURCES: _sources_from_config(form_data),
                 CONF_BAUD_RATE: target_baud,
+                **behaviour,
             }
             return await self.async_step_zone_names()
 
-        sources = self.config_entry.options.get(
+        options = dict(self.config_entry.options)
+        sources = options.get(
             CONF_SOURCES, self.config_entry.data.get(CONF_SOURCES, {})
         )
-        target_baud = self.config_entry.options.get(CONF_BAUD_RATE, POWER_ON_BAUD_RATE)
+        target_baud = options.get(CONF_BAUD_RATE, POWER_ON_BAUD_RATE)
         return self.async_show_form(
             step_id="init",
-            data_schema=_options_schema(sources, target_baud),
+            data_schema=_options_schema(sources, target_baud, options),
         )
 
     async def async_step_zone_names(
@@ -508,15 +602,20 @@ class MonopriceOptionsFlowHandler(config_entries.OptionsFlow):
         active_units = tuple(sorted(coordinator.active_units)) if coordinator else (1,)
         zone_ids = _zone_ids_for_units(active_units)
         previous_names = self.config_entry.options.get(CONF_ZONE_NAMES, {})
+        previous_ignored = self.config_entry.options.get(CONF_IGNORE_ZONES, [])
 
         if user_input is not None:
             zone_names = _zone_names_from_config(user_input, zone_ids)
             return self.async_create_entry(
                 title="",
-                data={**self._pending_options, CONF_ZONE_NAMES: zone_names},
+                data={
+                    **self._pending_options,
+                    CONF_ZONE_NAMES: zone_names,
+                    CONF_IGNORE_ZONES: _ignored_from_config(user_input),
+                },
             )
 
         return self.async_show_form(
             step_id="zone_names",
-            data_schema=_zone_names_schema(zone_ids, previous_names),
+            data_schema=_zone_names_schema(zone_ids, previous_names, previous_ignored),
         )

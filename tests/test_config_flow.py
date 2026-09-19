@@ -15,19 +15,27 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.monoprice_custom.config_flow import PreparedEndpoint
 from custom_components.monoprice_custom.const import (
+    CONF_ALL_ON_VOLUME,
     CONF_BAUD_RATE,
     CONF_DEVICE_IDENTITY,
     CONF_IDENTITY_KIND,
+    CONF_IGNORE_ZONES,
     CONF_LAST_KNOWN_BAUD,
+    CONF_MAX_VOLUME,
+    CONF_POLL_INTERVAL,
     CONF_SOURCE_1,
     CONF_SOURCES,
     CONF_ZONE_NAMES,
+    DEFAULT_ALL_ON_VOLUME,
+    DEFAULT_MAX_VOLUME,
+    DEFAULT_POLL_INTERVAL,
     DOMAIN,
 )
 from custom_components.monoprice_custom.serial import (
     CannotOpenPort,
     EndpointIdentity,
     NotMonopriceDevice,
+    PortPermissionDenied,
 )
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -80,7 +88,50 @@ async def test_rendering_and_selection_do_not_touch_serial(hass) -> None:
         CONF_SOURCES: {"1": "TV"},
         CONF_BAUD_RATE: 38400,
         CONF_ZONE_NAMES: {"11": "Kitchen"},
+        # Behaviour options are always written, so an entry created before they
+        # existed and one created now are read the same way.
+        CONF_POLL_INTERVAL: DEFAULT_POLL_INTERVAL,
+        CONF_MAX_VOLUME: DEFAULT_MAX_VOLUME,
+        CONF_ALL_ON_VOLUME: DEFAULT_ALL_ON_VOLUME,
+        CONF_IGNORE_ZONES: [],
     }
+
+
+async def test_behaviour_options_are_stored_as_submitted(hass) -> None:
+    """Non-default behaviour settings survive the flow, exclusions included."""
+    prepare = AsyncMock(return_value=PREPARED)
+    with patch(
+        "custom_components.monoprice_custom.config_flow.async_prepare_endpoint",
+        prepare,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_PORT: PORT}
+        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_SOURCE_1: "TV",
+                CONF_BAUD_RATE: 9600,
+                CONF_POLL_INTERVAL: 30,
+                CONF_MAX_VOLUME: 20,
+                CONF_ALL_ON_VOLUME: 8,
+            },
+        )
+        assert result["step_id"] == "zone_names"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"zone_11": "Kitchen", CONF_IGNORE_ZONES: ["13", "15"]}
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    options = result["options"]
+    assert options[CONF_POLL_INTERVAL] == 30
+    assert options[CONF_MAX_VOLUME] == 20
+    assert options[CONF_ALL_ON_VOLUME] == 8
+    assert options[CONF_IGNORE_ZONES] == ["13", "15"]
 
 
 @pytest.mark.parametrize(
@@ -88,6 +139,9 @@ async def test_rendering_and_selection_do_not_touch_serial(hass) -> None:
     (
         (CannotOpenPort(PORT), "cannot_connect"),
         (NotMonopriceDevice(PORT), "not_monoprice"),
+        # A permissions problem is a different fix from a wiring one, so it
+        # must not collapse into "cannot connect" despite being a subclass.
+        (PortPermissionDenied(PORT), "permission_denied"),
     ),
 )
 async def test_verify_reports_busy_and_wrong_devices(

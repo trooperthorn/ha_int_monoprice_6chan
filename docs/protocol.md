@@ -23,7 +23,7 @@ is sent next.
 | Single-field query | `?11VO` | 2 | Verified |
 | Rename/welcome acknowledgement | `1<AppleTV ` answers `Done.` | 2 | Verified |
 | Rejection | any malformed command answers `Command Error.` | 2 | Verified |
-| Whole-unit query | `?10` | 7 (one per zone) | Verified |
+| Whole-unit query | `?10` | 7: one leading marker frame plus one record per zone | Verified |
 
 `pymonoprice`'s `_process_request` takes the count as `num_eols_to_read` and
 defaults to 1, so anything but a control write has to pass it explicitly.
@@ -33,8 +33,11 @@ the count ahead of the send, so it reads one frame and then drains.
 ## The unit address is not a master zone
 
 `?N0` (`?10`, `?20`, `?30`) is not a unit summary. The amplifier answers it
-with one full status frame per zone, seven EOL frames in total, which is
-what `pymonoprice.all_zone_status` reads. Reading it through `zone_status`
+with one full status record per zone. Counted in EOL sequences that is seven,
+because the reply opens with the same bare marker frame every reply does, and
+`pymonoprice.all_zone_status` reads exactly that count. Counted in records it
+is six, one per zone, which is what jnewland/mpr-6zhmaut-api's
+`queryControllers()` waits for. Reading it through `zone_status`
 parses the first frame, so the reply looks like a valid status for zone
 `N1`, and leaves the remaining five frames unread.
 
@@ -45,8 +48,14 @@ it.
 
 | Fact | Status |
 | --- | --- |
-| `?10` returns six status frames, `?20`/`?30` return nothing when the unit is absent | Verified |
-| `<10VO10` is accepted and broadcasts; `<17..`, `<27..`, `<99..` answer `Command Error.` | Verified |
+| `?10` returns six status *records* (seven EOL frames, the first being the leading marker), `?20`/`?30` return nothing when the unit is absent | Verified |
+| `<10VO10` is accepted and broadcasts; on the 10761 and other 6-zone units `<17..`, `<27..`, `<99..` answer `Command Error.` | Verified on a 10761 |
+
+Zone ids above 6 per unit are rejected *on this model*, not by the protocol.
+The same command set runs 4-zone and 8-zone units (Monoprice 44519 and 44518,
+Dayton DAX88) where `11..14` or `11..18` are valid, so this row is a fact
+about the 10761 and must not be read as a protocol invariant that would block
+supporting them.
 
 ## Writes only apply while the zone is powered on
 
@@ -71,9 +80,20 @@ even with the zone powered on. The command is not malformed: `<ZZPA1` does
 answer `Command Error.`, so the amplifier is parsing `<ZZPA01` and choosing
 to ignore it. The field reports the hardware paging input.
 
-`switch.py` still sends the command, in case other firmware honors it, and
-reads the flag back; when it did not take, it raises rather than leaving a
-switch that silently returns to off.
+This is not a quirk of one unit. The openHAB `monopriceaudio` binding states
+it as a product fact across the 10761, DAX66, 44519 and 44518: activating
+"Page All Zones" can only be done through the **+12V trigger input on the back
+of the amplifier**. That binding models paging as a read-only contact and
+offers no page write at all, and pyxantech defines no PA command in any of its
+protocol files. jnewland/mpr-6zhmaut-api exposes `pa` for POST but never shows
+it working.
+
+So the way to page is to wire the announcement trigger to the amplifier's +12V
+input; there is no RS-232 route. `switch.py` still sends `<ZZPA01` and reads
+the flag back, raising when it did not take, because a silent no-op is worse
+than an error. It is kept as a switch rather than removed so existing
+dashboards keep working, but no known implementation believes the write does
+anything.
 
 ## Out-of-range values are accepted without complaint
 
@@ -99,6 +119,33 @@ back to the 0-14/0-20 wire value before sending. `const.py`'s
 `ATTR_BALANCE`/`ATTR_BASS`/`ATTR_TREBLE` service fields carry the raw wire
 value, not the display value.
 
+## Command timing
+
+The amplifier answers one command at a time and has no flow control, so the
+only thing keeping a command from arriving before the previous reply is fully
+read is the caller's own pacing.
+
+| Interval | Constant | Value | Why |
+| --- | --- | --- | --- |
+| Between any two commands | `gateway.py::MIN_COMMAND_INTERVAL` | 0.05s | pyxantech sets this on every series it supports and enforces it with an explicit sleep; its README records the value moving from 400ms down to 50ms |
+| Before each expansion-unit probe | `serial.py::EXPANSION_PROBE_SPACING` | 1.0s | A probe that times out is read as "unit absent", so a slow unit would lose its entities until the next rediscovery. jnewland/mpr-6zhmaut-api spaces the equivalent startup queries by a full second |
+| After a baud rate change, before clearing | `api.py::BAUD_SETTLE` | 0.25s | Measured; see the baud section above |
+| After the first frame of an unpredictable reply | `api.py::DRAIN_SETTLE` | 0.15s | `send_raw` cannot know the frame count before it sends |
+
+The gateway's lock serializes access but does not space commands apart, so the
+floor is held inside it, measured from when the previous command finished. A
+command that raised still spaces the next one: the floor protects the
+amplifier, and a failure is exactly when the line is least likely to be quiet.
+
+Measured cost on a single 10761 at 9600: a six-zone poll goes from 0.22s to
+0.47s against a 5s poll interval, and endpoint validation from 0.88s to 1.88s
+because of the one expansion probe.
+
+The expansion-probe spacing is a precaution on published precedent, not a fix
+validated against a reproduction. The bench that produced this document had
+one unit and no expansion units, so whether the previous back-to-back probe
+ever actually missed a slaved unit is still unverified.
+
 ## Status response framing
 
 | Fact | Status |
@@ -107,6 +154,16 @@ value, not the display value.
 | Reading it takes two reads: the first consumes the leading `` \r\n# `` marker, the second consumes the actual status record | Verified |
 
 See `serial.py::_read_zone_status`.
+
+One reference disagrees about field order and is wrong. pyxantech's
+`protocols/monoprice.yaml` parses the record as zone, power, source, mute,
+do-not-disturb, volume, treble, bass, balance, unknown, keypad, with its `dnd`
+group only one character wide, which misaligns everything after it. Its own
+`protocols/dax66.yaml`, the openHAB binding, jnewland/mpr-6zhmaut-api, the
+DAX88 manual and `pymonoprice.ZoneStatus` all agree on zone, PA, power, mute,
+DND, volume, treble, bass, balance, source, keypad, which is what this
+integration observes on the wire. Do not "correct" `pymonoprice` to match
+pyxantech's Monoprice file.
 
 ## Baud rate change behavior
 

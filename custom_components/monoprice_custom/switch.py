@@ -6,14 +6,15 @@ import logging
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError, callback
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .__init__ import MonopriceConfigEntry
-from .const import CONF_ZONE_NAMES
+from .const import CONF_IGNORE_ZONES, CONF_ZONE_NAMES
 from .device import async_ensure_unit_devices, zone_device_info
+from .zones import write_targets
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -132,25 +133,41 @@ class MonopricePASwitch(CoordinatorEntity, SwitchEntity):
             return None
         return getattr(self.coordinator.data[self._zone_id], "pa", False)
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn PA on, reporting the amplifiers that refuse it.
+    async def _async_send(
+        self, method: str, *args: Any, honour_exclusions: bool = True
+    ) -> None:
+        """Send a command to every zone this entity addresses."""
+        for zone_id in write_targets(
+            self._zone_id,
+            self.coordinator.entry.options.get(CONF_IGNORE_ZONES),
+            honour_exclusions=honour_exclusions,
+        ):
+            await self.coordinator.gateway.async_execute(method, zone_id, *args)
 
-        `<ZZPA01` is accepted with a normal echo on hardware that ignores it
-        (a malformed `<ZZPA1` is what draws "Command Error."), so the only way
-        to tell the command apart from a no-op is to read the flag back.
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn PA on, reporting that the amplifier refused it.
+
+        No known implementation believes this write works: paging is done
+        through the amplifier's +12V trigger input, and the openHAB binding
+        documents that for the whole family while pyxantech defines no PA
+        command at all. It is still sent, because `<ZZPA01` is accepted with a
+        normal echo (a malformed `<ZZPA1` is what draws "Command Error."), so
+        reading the flag back is the only way to tell a working firmware from
+        a no-op. See docs/protocol.md.
         """
-        await self.coordinator.gateway.async_execute("set_pa", self._zone_id, True)
+        await self._async_send("set_pa", True)
         await self.coordinator.async_refresh_zone(self._zone_id)
         if not self.is_on:
             raise HomeAssistantError(
-                f"Zone {self._zone_id} did not accept the PA command. On this "
-                "amplifier PA reports the hardware paging input and cannot be "
-                "set over RS-232; see docs/protocol.md."
+                f"Zone {self._zone_id} did not accept the PA command. PA "
+                "reports the amplifier's +12V paging trigger input and is not "
+                "settable over RS-232; wire the announcement trigger to that "
+                "input instead. See docs/protocol.md."
             )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn PA off."""
-        await self.coordinator.gateway.async_execute("set_pa", self._zone_id, False)
+        await self._async_send("set_pa", False, honour_exclusions=False)
         await self.coordinator.async_refresh_zone(self._zone_id)
 
 
@@ -198,12 +215,23 @@ class MonopriceDNDSwitch(CoordinatorEntity, SwitchEntity):
             return None
         return getattr(self.coordinator.data[self._zone_id], "do_not_disturb", False)
 
+    async def _async_send(
+        self, method: str, *args: Any, honour_exclusions: bool = True
+    ) -> None:
+        """Send a command to every zone this entity addresses."""
+        for zone_id in write_targets(
+            self._zone_id,
+            self.coordinator.entry.options.get(CONF_IGNORE_ZONES),
+            honour_exclusions=honour_exclusions,
+        ):
+            await self.coordinator.gateway.async_execute(method, zone_id, *args)
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn DND on."""
-        await self.coordinator.gateway.async_execute("set_dnd", self._zone_id, True)
+        await self._async_send("set_dnd", True)
         await self.coordinator.async_refresh_zone(self._zone_id)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn DND off."""
-        await self.coordinator.gateway.async_execute("set_dnd", self._zone_id, False)
+        await self._async_send("set_dnd", False, honour_exclusions=False)
         await self.coordinator.async_refresh_zone(self._zone_id)
