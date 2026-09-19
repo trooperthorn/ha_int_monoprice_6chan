@@ -12,6 +12,7 @@ pytest.importorskip("homeassistant")
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.monoprice_custom.const import CONF_ZONE_NAMES, DOMAIN
+from custom_components.monoprice_custom.device import async_ensure_unit_devices
 from custom_components.monoprice_custom.coordinator import MonopriceCoordinator
 from custom_components.monoprice_custom.number import (
     EQ_WIRE_OFFSET,
@@ -47,6 +48,9 @@ async def test_eq_display_values_match_the_wire(
     gateway = SimpleNamespace(async_execute=AsyncMock())
     coordinator = MonopriceCoordinator(hass, gateway, entry)
     coordinator.active_units = [1]
+    # A zone's DeviceInfo resolves its parent unit by registry id, so the unit
+    # device has to exist first; see docs/design.md.
+    async_ensure_unit_devices(hass, entry.entry_id, {1})
 
     number = MonopriceZoneNumber(hass, coordinator, entry.entry_id, 11, control)
 
