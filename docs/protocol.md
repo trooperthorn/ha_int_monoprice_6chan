@@ -114,11 +114,34 @@ See `serial.py::_read_zone_status`.
 | --- | --- |
 | The amplifier switches to the new baud rate immediately after receiving the set-baud command and does not reply at the old rate | Verified |
 | Waiting for a reply at the old rate after sending the command always times out | Verified |
+| The switch is unconditional: it happens on receipt, whether or not the caller ever confirms it | Verified |
+| The tail of the echo is still in flight at the old rate when the switch lands, and decodes as garbage at the new one | Verified |
+| A settle of at least 0.05s between switching the local port and clearing its buffers is required; below that the confirmation reads the stale echo | Verified (measured on a 10761) |
+| `<{baud}` is the command shape | Verified, and corroborated by jnewland/mpr-6zhmaut-api |
+| The six supported rates are 9600, 19200, 38400, 57600, 115200, 230400 | Verified at 9600/19200/38400/115200, corroborated for all six by jnewland/mpr-6zhmaut-api |
+| Connecting at the wrong rate does not lock the controller | Reported by jnewland/mpr-6zhmaut-api, not independently verified |
+| Power loss returns the controller to 9600; removing power for 30 seconds forces it | Reported by jnewland/mpr-6zhmaut-api, not independently verified |
 
-See `api.py::MonopriceExtended.set_baud_rate`, which sends the command, then
-switches the local port's rate, before querying zone 11 to confirm the amp
-followed. `probe_baud_rate` only moves the local port and confirms zone 11,
-so it never changes what the amplifier is set to.
+See `api.py::MonopriceExtended.set_baud_rate`, which sends the command,
+switches the local port's rate, waits `BAUD_SETTLE` for the old-rate echo to
+finish arriving, and only then clears the buffers and queries zone 11.
+Clearing first is what fails: `reset_input_buffer` discards what has already
+arrived, so bytes still in flight land afterwards and are read as the reply.
+The same race is why a leftover frame elsewhere in the protocol is not always
+masked by the reset at the start of the next request.
+
+A False return from `set_baud_rate` therefore does not mean the amplifier
+stayed where it was. Recovery is `gateway.py::_ensure_link_sync`, which probes
+the supported rates and pins whichever answers; because a wrong-rate
+connection cannot lock the controller, that sweep is safe by design rather
+than by luck.
+
+`probe_baud_rate` only moves the local port and confirms zone 11, so it never
+changes what the amplifier is set to.
+
+Over a `socket://` bridge none of this applies to the far side: changing
+`self._port.baudrate` moves only the local end, and the bridge's own fixed
+rate governs the wire to the amplifier.
 
 ## Keypad commands
 

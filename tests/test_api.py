@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 from threading import RLock
 from types import ModuleType, SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 PACKAGE_ROOT = Path(__file__).parents[1] / "custom_components" / "monoprice_custom"
 package = ModuleType("monoprice_custom")
@@ -74,6 +74,30 @@ class TestBaudSwitch(unittest.TestCase):
         client._send_request.assert_called_once_with(b"<38400\r")
         client._process_request.assert_not_called()
         self.assertEqual(client._port.baudrate, 38400)
+
+    def test_settles_before_clearing_the_stale_echo(self):
+        # The amplifier switches mid-reply, so the tail of its echo arrives at
+        # the old rate after the switch. Clearing before it lands leaves those
+        # bytes to be read as the confirmation, which on hardware made the
+        # switch report failure while the amplifier had already moved.
+        client = object.__new__(api.MonopriceExtended)
+        client._lock = RLock()
+        manager = Mock()
+        client._port = SimpleNamespace(
+            baudrate=9600,
+            reset_input_buffer=manager.reset_input,
+            reset_output_buffer=manager.reset_output,
+        )
+        client._send_request = manager.send
+        client.zone_status = Mock(return_value=SimpleNamespace(zone=11))
+
+        with patch.object(api, "sleep", manager.sleep):
+            self.assertTrue(client.set_baud_rate(38400))
+
+        order = [name for name, _, _ in manager.mock_calls]
+        self.assertLess(order.index("sleep"), order.index("reset_input"))
+        self.assertLess(order.index("send"), order.index("sleep"))
+        manager.sleep.assert_called_once_with(api.BAUD_SETTLE)
 
 
 class TestReplyFraming(unittest.TestCase):
