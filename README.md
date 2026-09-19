@@ -146,7 +146,53 @@ This integration exposes custom services for advanced automation workflows:
 
 ## 🚦 Baud Rate & Latency
 
-The amplifier always powers on at 9600 baud. On first poll after startup the integration negotiates up to a faster **target link speed**, configurable from **Settings → Devices & Services → Monoprice → Configure** (defaults to 9600 unless changed). A higher rate lowers per-command latency but is more sensitive to long or noisy RS-232 runs, if you see intermittent timeouts after raising it, step back down one notch. The amp reverts to 9600 baud on every power cycle, so the integration re-negotiates automatically whenever a connection error is detected.
+> ### ⚡ The amplifier's default baud rate is **9600**
+>
+> **If the amplifier has stopped responding and you suspect the link speed,
+> unplug it from mains power, wait 30 seconds, and plug it back in.** That
+> resets the RS-232 link speed to 9600 baud, which is where this integration
+> always starts looking. You do not need to change anything in Home Assistant
+> first, and you cannot damage anything by trying it.
+
+The amplifier powers on at **9600 baud** every time and keeps whatever rate it
+was last told to use only until it loses power. On the first poll after
+startup the integration negotiates up to the **target link speed** you have
+configured (**Settings → Devices & Services → Monoprice → Configure**, itself
+defaulting to 9600). A higher rate lowers per-command latency but is more
+sensitive to long or noisy RS-232 runs; if you see intermittent timeouts after
+raising it, step back down one notch.
+
+### Recovering the link by hand
+
+You should rarely need this, because the integration re-probes all six
+supported rates (9600, 19200, 38400, 57600, 115200, 230400) whenever it loses
+contact. Connecting at the wrong rate is documented not to lock the controller
+or put it into a bad state, which is what makes that sweep safe. But if you
+want to force a known-good starting point:
+
+1. **Remove power from the amplifier for a full 30 seconds.** A quick
+   off-and-on may not be enough; the controller has to fully discharge.
+2. Power it back on. It is now at **9600 baud**.
+3. In Home Assistant, set the target link speed to **9600** under
+   **Configure**, so the integration does not immediately negotiate away from
+   the rate you just restored while you are diagnosing.
+4. Reload the integration, or wait for the next poll. It re-probes
+   automatically and will find the amplifier.
+
+Once it is back online you can raise the target link speed again if you want
+the lower latency.
+
+**Why this happens at all.** The amplifier switches rate the instant it
+receives the command and never acknowledges it, so a switch that is not
+confirmed can leave the amplifier at the new rate while Home Assistant is
+still listening at the old one. The integration handles that by sweeping every
+supported rate on the next poll, so this is a recovery path of last resort
+rather than something you should expect to use.
+
+> **Serial-over-IP users:** the target link speed only changes the *local* end
+> of the connection. The bridge's own configured rate governs the wire to the
+> amplifier, so a power-cycle reset puts the amplifier back to 9600 and your
+> bridge must be set to 9600 too. See [Serial over IP](#-serial-over-ip).
 
 ---
 
@@ -220,20 +266,117 @@ broadcast happens inside the amplifier's firmware and cannot be filtered.
 *   **Supported hardware is the Monoprice 10761 six-zone family** (and the units that match it exactly: Dayton DAX66, Monoprice 39261, Soundavo WS66i and the generic clones). Four-zone and eight-zone relatives such as the Monoprice 44519/44518 and the Dayton DAX88 speak the same commands but have different zone and source counts, which this integration hard-codes to six. The Monoprice 31028/PAM1270 and Xantech controllers use a different framing altogether and will not work. See `docs/decisions.md`.
 
 *   Paging is a hardware function. The `Public Address` switch sends the documented `<ZZPA01` command, but the amplifier ignores it: on this family, "Page All Zones" can only be activated through the **+12V trigger input** on the back of the amplifier. Route your announcement device's audio into the PA input and drive that trigger. The switch is kept because the command is accepted without error, so a firmware that does honour it would work, and it now raises an error rather than silently flipping back.
+*   **Volume, mute, source and tone changes only apply while a zone is powered on.** Sent to a zone that is off, the amplifier acknowledges them normally and discards them, with no error of any kind. Power and Do Not Disturb are the exceptions. Turn the zone on first. See [Troubleshooting](#a-control-changed-and-then-snapped-back).
+*   The amplifier does not range-check values sent through the `remote` entity's raw commands; `<11VO99` is accepted without complaint. The normal entities clamp for you, raw commands do not.
 *   The `Sound Mode` dropdown on each zone media player is a convenience preset that just sets the zone's Bass value, it isn't a hardware DSP mode, and it will move the Bass number entity's slider when used.
 *   Source names/keypad messages are limited to 8 ASCII characters by the hardware; longer input is truncated, and non-ASCII input is rejected with an error rather than sent as mangled bytes.
 *   Neither the source names nor the keypad welcome message can be read back over RS-232, so those text entities show the last value this integration sent, not what the keypad displays.
 
 ## 🩺 Troubleshooting
 
-*   **"Cannot connect" during verification:** confirm that no other integration or process owns the selected interface. Only the submitted interface is opened, and the verifier closes it before setup continues.
-*   **"Not allowed to open that port":** a permissions problem rather than a wiring one. On a Linux host the user Home Assistant runs as needs to be in the `dialout` group (`sudo usermod -a -G dialout <user>`, then restart), and on Home Assistant OS the port must be passed through to the container. This is reported separately from "cannot connect" so you know which of the two you have.
-*   **"Not a Monoprice amplifier" during verification:** the interface opened successfully but did not return a structurally valid Zone 11 response at a supported baud rate.
-*   **Entities go `Unavailable` intermittently:** usually a baud-rate mismatch on a long/noisy cable run, lower the target link speed in **Configure**.
-*   **Nothing responds after changing the target link speed:** the amplifier switches rate on receipt and never acknowledges, so it can end up somewhere the integration is not. It re-probes every supported rate automatically on the next poll, and connecting at the wrong rate cannot lock the controller. To force it back by hand, remove power from the amplifier for 30 seconds; it returns to 9600.
-*   **Serial-over-IP (`socket://`) endpoints:** the target link speed only changes the local end. The bridge's own configured rate governs the wire to the amplifier, so set the two to match at the bridge.
-*   **An expansion unit is unavailable:** discovery retries after recovery and every five minutes. A newly detected unit is added dynamically; an existing unit that returns becomes available again without a restart.
-*   For deeper diagnosis, download the integration's **Diagnostics** file from the device page. It reports redacted entry data, connection state, current/target baud, active units, poll timing, and failure/reconnect counters; arbitrary raw serial content is not included.
+### The amplifier is not responding at all
+
+*   **First, try the power-cycle reset.** Unplug the amplifier for **30
+    seconds** and plug it back in. It returns to **9600 baud**, the rate this
+    integration always probes first. Full steps in
+    [Baud Rate & Latency](#-baud-rate--latency).
+*   **"Cannot connect" during verification:** confirm that no other integration
+    or process owns the selected interface. Only the submitted interface is
+    opened, and the verifier closes it before setup continues. On a
+    serial-over-IP bridge, a stale TCP session can hold the port; set
+    `kickolduser: true` in `ser2net`.
+*   **"Not allowed to open that port":** a permissions problem rather than a
+    wiring one. On a Linux host the user Home Assistant runs as needs to be in
+    the `dialout` group (`sudo usermod -a -G dialout <user>`, then restart), and
+    on Home Assistant OS the port must be passed through to the container. This
+    is reported separately from "cannot connect" so you know which of the two
+    you have.
+*   **"Not a Monoprice amplifier" during verification:** the interface opened
+    successfully but did not return a structurally valid Zone 11 response at any
+    supported baud rate. Check that the cable is a straight-through serial cable
+    on the amplifier's **control** port, and that the amplifier is powered.
+*   **Entities go `Unavailable` intermittently:** usually a baud-rate mismatch
+    on a long or noisy cable run. Lower the target link speed in **Configure**,
+    one notch at a time.
+*   **Nothing responds after changing the target link speed:** the amplifier
+    switches rate on receipt and never acknowledges, so it can end up somewhere
+    the integration is not. It re-probes every supported rate on the next poll
+    and connecting at the wrong rate cannot lock the controller, so this
+    normally clears itself. If it does not, use the 30-second power-cycle reset
+    above.
+*   **An expansion unit is unavailable:** discovery retries after recovery and
+    every five minutes. A newly detected unit is added dynamically; an existing
+    unit that returns becomes available again without a restart.
+
+### A control changed and then snapped back
+
+*   **The zone was off.** This is the single most common surprise with this
+    hardware. The amplifier accepts volume, mute, source, treble, bass and
+    balance commands for a powered-off zone with a perfectly normal
+    acknowledgement, and then discards them. There is no error to report.
+    **Turn the zone on first, then set the value.** Power and Do Not Disturb are
+    the exceptions; they apply whether the zone is on or off.
+
+    Home Assistant re-reads the zone after every write, so the entity shows what
+    the amplifier actually kept rather than what you asked for. That is why the
+    slider springs back instead of silently lying to you.
+*   **You hit the volume ceiling.** If a **Maximum volume** is set under
+    **Configure**, every volume this integration sends is clamped to it,
+    including master writes. A slider dragged above the ceiling lands on it.
+*   **The zone is excluded from master commands.** Zones listed under **Zones
+    excluded from master commands** ignore all-zone power, volume, source and
+    tone writes. Turning everything *off* deliberately still reaches them.
+*   **The `Public Address` switch will not stay on.** Paging is a hardware
+    function on this family: it can only be activated through the **+12V trigger
+    input** on the back of the amplifier. The switch sends the documented
+    command, reads the flag back, and raises an error when the amplifier ignores
+    it, which it will. See Known Limitations.
+
+### Zone and entity oddities
+
+*   **The master zone mirrors zone 1.** A unit's master entity (zone 10, 20 or
+    30) has no readable state of its own; the amplifier answers a whole-unit
+    query with one record per zone, not a summary. Its *writes* genuinely reach
+    every zone, but the state it displays is the first zone's. Judge "did it
+    work" from the individual zones.
+*   **Keypad text entities look empty or stale.** Source names and the keypad
+    welcome message cannot be read back over RS-232 at all. Those entities show
+    the last value *this integration* sent, not what the keypad is displaying,
+    so after a restart they start blank even though the keypad still shows your
+    text.
+*   **A keypad name was rejected or truncated.** The hardware takes exactly 8
+    characters and only plain ASCII. Longer text is truncated; accented or
+    non-Latin characters are rejected with an error rather than sent as
+    mangled bytes.
+*   **Keypad status shows `disconnected` everywhere.** That is the amplifier
+    reporting no keypad on that zone. If every zone reads `disconnected`, keypad
+    presses are not something polling needs to catch and you can raise the
+    **Poll interval** considerably; the front panel still changes state out of
+    band, so do not disable polling entirely.
+*   **`Sound Mode` moves the Bass slider.** It is a convenience preset that sets
+    the zone's Bass value, not a hardware DSP mode.
+
+### Using the `remote` entity for raw commands
+
+*   **The amplifier does not range-check values.** A raw command such as
+    `<11VO99` is echoed back without complaint even though the volume range is
+    0-38. The clamping that protects the normal entities does not apply to raw
+    commands, by design, so check your values.
+*   **A rejected command raises an error.** When the amplifier answers
+    `Command Error.`, the integration raises rather than carrying on, and treats
+    the link as needing a resync on the next poll. A malformed command is the
+    usual cause.
+
+### Still stuck
+
+Download the integration's **Diagnostics** file from the device page. It reports
+redacted entry data, connection state, current and target baud, active units,
+poll timing, and failure/reconnect counters. Arbitrary raw serial content is not
+included, so it is safe to attach to an issue.
+
+Protocol-level detail, including which facts were verified against hardware and
+which come from other implementations, is in
+[`docs/protocol.md`](docs/protocol.md).
 
 ---
 
