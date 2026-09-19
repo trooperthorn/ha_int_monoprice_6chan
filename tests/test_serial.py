@@ -16,6 +16,18 @@ package = sys.modules.setdefault("monoprice_custom", ModuleType("monoprice_custo
 package.__path__ = [str(PACKAGE_ROOT)]
 serial_helpers = importlib.import_module("monoprice_custom.serial")
 
+
+def setUpModule() -> None:
+    """Drop the expansion-probe spacing so the suite does not wait it out."""
+    global _SPACING_PATCH
+    _SPACING_PATCH = patch.object(serial_helpers, "EXPANSION_PROBE_SPACING", 0)
+    _SPACING_PATCH.start()
+
+
+def tearDownModule() -> None:
+    _SPACING_PATCH.stop()
+
+
 ZONE_11_RESPONSE = b">1100010000101112100400\r\n#"
 # Same frame, only the leading two-digit zone number differs; see docs/protocol.md.
 ZONE_21_RESPONSE = b">2100010000101112100400\r\n#"
@@ -126,6 +138,26 @@ class TestEndpointValidation(unittest.TestCase):
             result = serial_helpers.validate_monoprice_endpoint("COM7", (9600,))
 
         self.assertEqual(result.detected_units, (1, 2, 3))
+
+    def test_expansion_probes_are_spaced(self) -> None:
+        # A probe that times out is read as "unit absent", so the probes must
+        # not go out back to back; see docs/protocol.md.
+        port = FakePort(
+            responding_baud=9600,
+            responding_zones={11: ZONE_11_RESPONSE, 21: ZONE_21_RESPONSE},
+        )
+        with (
+            patch.object(serial_helpers.serialx, "serial_for_url", return_value=port),
+            patch.object(serial_helpers, "EXPANSION_PROBE_SPACING", 0.02),
+            patch.object(serial_helpers, "sleep") as sleep_mock,
+        ):
+            serial_helpers.validate_monoprice_endpoint("COM7", (9600,))
+
+        spacing_waits = [
+            call for call in sleep_mock.call_args_list if call.args == (0.02,)
+        ]
+        # One before the unit 2 probe, one before the unit 3 probe.
+        self.assertEqual(len(spacing_waits), 2)
 
     def test_busy_device_is_reported_without_leaking_port(self) -> None:
         port = FakePort()

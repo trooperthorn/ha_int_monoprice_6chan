@@ -33,6 +33,25 @@ All six entity services register through `service.async_register_platform_entity
 so they exist before any platform loads (developer blog 2025-09-25). Rejected: the
 deprecated per-platform registration.
 
+## 2026-09-19, commands are paced, and the pacing lives in the gateway
+
+Every source that documents timing enforces a floor between RS-232 commands;
+pyxantech sets 0.05s on all six series it supports. The gateway's lock
+serialized access but let commands run back to back, and the poll issues a
+wake plus six to eighteen queries every five seconds. `MIN_COMMAND_INTERVAL`
+is now held inside the lock, measured from when the previous command finished.
+Rejected: pacing inside `api.py`, which would miss the config-flow path and
+would have to be repeated per method; and pacing at the coordinator, which
+would leave entity setters and services unpaced.
+
+Expansion-unit probes get their own, larger spacing. A probe that times out is
+read as "unit absent" and silently removes six or twelve zones, so the cost of
+being early is much higher than the cost of waiting; S1 spaces the equivalent
+queries by a full second and `EXPANSION_PROBE_SPACING` matches it. This is a
+precaution on precedent rather than a validated fix, because the bench has no
+expansion units to reproduce the failure against. Recorded as still open in
+`TODO.md` rather than closed.
+
 ## 2026-09-18, reply frame counts are per command, confirmed on hardware
 
 A bench session against a 10761 found four commands reading one EOL frame where

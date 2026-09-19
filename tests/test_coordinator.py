@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -18,6 +19,15 @@ from custom_components.monoprice_custom.const import (
 from custom_components.monoprice_custom.coordinator import MonopriceCoordinator
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
+
+
+@pytest.fixture(autouse=True)
+def _no_expansion_probe_spacing():
+    """Drop the probe spacing so tests do not wait out a real second."""
+    from custom_components.monoprice_custom import coordinator as coordinator_module
+
+    with patch.object(coordinator_module, "EXPANSION_PROBE_SPACING", 0):
+        yield
 
 
 class FakeGateway:

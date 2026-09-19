@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from time import monotonic
@@ -14,7 +15,11 @@ from pymonoprice import ZoneStatus
 
 from .const import CONF_BAUD_RATE, CONF_LAST_KNOWN_BAUD
 from .gateway import MonopriceGateway
-from .serial import POWER_ON_BAUD_RATE, SUPPORTED_BAUD_RATES
+from .serial import (
+    EXPANSION_PROBE_SPACING,
+    POWER_ON_BAUD_RATE,
+    SUPPORTED_BAUD_RATES,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,6 +89,9 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
         for unit in (2, 3):
             if unit == 3 and 2 not in active:
                 break
+            # A timeout here means "absent", so give a slow unit room to answer
+            # rather than dropping its entities until the next rediscovery.
+            await asyncio.sleep(EXPANSION_PROBE_SPACING)
             try:
                 status = await self.gateway.async_zone_status(unit * 10 + 1)
             except _COMMUNICATION_ERRORS:

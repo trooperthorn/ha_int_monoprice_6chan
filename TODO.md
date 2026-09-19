@@ -15,16 +15,25 @@ Current implementation read as of `198f408` (v2026.09.18.1).
 | S1 | [jnewland/mpr-6zhmaut-api](https://github.com/jnewland/mpr-6zhmaut-api) | Yes (README, `app.js`, `updateBaudRate.js`) | Node JSON API over the 10761 serial port |
 | S2 | [martinezmp3 Hubitat driver](https://github.com/martinezmp3/Hubitat-Monoprice-6-zone-controller-TCP-IP-Serial/blob/master/Child-MonoPrice-6-Zone-Amp-Controller.groovy) | Yes | Hubitat child driver, serial-over-TCP |
 | S3 | [openHAB `monopriceaudio` binding docs](https://v2.openhab.org/addons/bindings/monopriceaudio/) | Docs site blocked by egress proxy; read the same content from the binding's own `README.md` and Java source in `openhab/openhab-addons` | Multi-model binding |
-| S4 | [openHAB community thread 1693 (page 3)](https://community.openhab.org/t/monoprice-6-zone-audio-amp-items-sitemap-rules/1693?page=3) | **Not reachable** — `community.openhab.org` is blocked by the egress proxy | Items/sitemap/rules tutorial thread |
-| S5 | [openHAB community thread 128924](https://community.openhab.org/t/monoprice-dayton-audio-xantech-whole-house-audio-binding-beta-3-2-0-4-0-0/128924) | **Not reachable** — same block | Binding beta thread |
+| S4 | [openHAB community thread 1693 (page 3)](https://community.openhab.org/t/monoprice-6-zone-audio-amp-items-sitemap-rules/1693?page=3) | Yes (read 2026-09-19) | Items/sitemap/rules tutorial thread |
+| S5 | [openHAB community thread 128924](https://community.openhab.org/t/monoprice-dayton-audio-xantech-whole-house-audio-binding-beta-3-2-0-4-0-0/128924) | Yes (read 2026-09-19) | Binding beta thread |
 | S6 | [rsnodgrass/pyxantech](https://github.com/rsnodgrass/pyxantech) | Yes (README, `protocols/*.yaml`, `series/*.yaml`, `docs/dax88-rs232.txt`, `protocol.py`) | Multi-vendor Python RS-232 library |
 
-- [ ] **S4 and S5 were never read.** Both openHAB community URLs are blocked
-  at the network egress proxy in this environment, so every community-thread
-  claim below comes from the binding's own README/source (S3) rather than the
-  threads. Anything the threads say that the binding does not encode is still
-  unreviewed. Re-run this research from a network that can reach
-  `community.openhab.org`, or paste the thread contents in.
+- [x] **S4 and S5 have now been read (2026-09-19).** Both openHAB community
+  URLs were blocked at the egress proxy when this file was written; they are
+  reachable now and were fetched and compared against this file. **Neither adds
+  anything new.** Every fact they carry was already reconstructed correctly
+  from the binding's own README/source (S3):
+  - S4's protocol detail is almost entirely the **31028 / PAM1270** (`!1PR1+\r`,
+    `?1ZS+\r`, `#1ZS VO.. PO.. MU.. IS..+`, single-digit zones, no master),
+    which D4 already records as a different, incompatible 70-volt unit. Its one
+    general point, 300-600 ms between commands, is the same topic as B1, where
+    S6 gives the better-sourced 400 ms to 50 ms history.
+  - S5 yields the ser2net line `9600 8DATABITS NONE 1STOPBIT LOCAL` (already
+    quoted verbatim in B8), the built-in serial-over-IP port 8080 (B8), and a
+    5-60 s polling interval defaulting to 15 s (B2).
+
+  No item in this file needed revising as a result.
 
 ---
 
@@ -122,10 +131,11 @@ a roadmap item to try 10 ms "if there are no bug reports of the 50 ms drop".
 queries every 5 seconds, and `media_player.py` follows every setter with an
 immediate `async_refresh_zone`.
 
-- [ ] Evaluate adding a ~50 ms floor between writes in the gateway. This is
-  the single most widely-agreed timing constant across the sources and the
-  most likely explanation for intermittent timeouts or frame desync on slower
-  adapters and serial-over-IP bridges.
+- [x] **Done.** `gateway.py::MIN_COMMAND_INTERVAL` is 0.05 s, held inside the
+  I/O lock by `_async_hold_command_floor` and measured from when the previous
+  command *finished*, so a slow command does not get a second delay stacked on
+  it. A command that raised still spaces the next one. Measured on a 10761: a
+  six-zone poll goes from 0.22 s to 0.47 s, well inside the 5 s interval.
 
 ### B2. Poll interval is hard-coded at 5 s, with no way to slow it down
 
@@ -205,11 +215,18 @@ if (AmpCount >= 3) { setTimeout(function(){ connection.write("?30\r"); }, 2000);
 S3 does not auto-detect at all — the user declares `numZones` in the thing
 configuration.
 
-- [ ] Test whether a slaved unit 2/3 can be missed by the immediate probe on
-  real hardware with expansion units attached (`docs/protocol.md` records the
-  whole verification was done on **one** 10761 with no expansion units, so
-  this path has never been exercised against the hardware it exists for).
-  A false negative here silently removes 6 or 12 zones.
+- [x] **Spacing added.** `serial.py::EXPANSION_PROBE_SPACING` is 1.0 s,
+  matching S1, and is waited out before each probe on both paths:
+  `coordinator.py::_async_discover_active_units` and
+  `serial.py::_detect_expansion_units`. Endpoint validation goes from 0.88 s to
+  1.88 s on a single-unit amplifier, paid once at setup and at each
+  rediscovery.
+- [ ] **Still untested against expansion hardware.** Whether a slaved unit 2/3
+  was ever actually missed by the old immediate probe cannot be confirmed here:
+  the bench has **one** 10761 and no expansion units, so this path has still
+  never been exercised against the hardware it exists for. The spacing above is
+  a precaution taken on S1's precedent, not a fix validated against a
+  reproduction. A false negative here silently removes 6 or 12 zones.
 
 ### B7. `Command Error.` is never detected as a desync signal
 

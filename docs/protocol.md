@@ -99,6 +99,33 @@ back to the 0-14/0-20 wire value before sending. `const.py`'s
 `ATTR_BALANCE`/`ATTR_BASS`/`ATTR_TREBLE` service fields carry the raw wire
 value, not the display value.
 
+## Command timing
+
+The amplifier answers one command at a time and has no flow control, so the
+only thing keeping a command from arriving before the previous reply is fully
+read is the caller's own pacing.
+
+| Interval | Constant | Value | Why |
+| --- | --- | --- | --- |
+| Between any two commands | `gateway.py::MIN_COMMAND_INTERVAL` | 0.05s | pyxantech sets this on every series it supports and enforces it with an explicit sleep; its README records the value moving from 400ms down to 50ms |
+| Before each expansion-unit probe | `serial.py::EXPANSION_PROBE_SPACING` | 1.0s | A probe that times out is read as "unit absent", so a slow unit would lose its entities until the next rediscovery. jnewland/mpr-6zhmaut-api spaces the equivalent startup queries by a full second |
+| After a baud rate change, before clearing | `api.py::BAUD_SETTLE` | 0.25s | Measured; see the baud section above |
+| After the first frame of an unpredictable reply | `api.py::DRAIN_SETTLE` | 0.15s | `send_raw` cannot know the frame count before it sends |
+
+The gateway's lock serializes access but does not space commands apart, so the
+floor is held inside it, measured from when the previous command finished. A
+command that raised still spaces the next one: the floor protects the
+amplifier, and a failure is exactly when the line is least likely to be quiet.
+
+Measured cost on a single 10761 at 9600: a six-zone poll goes from 0.22s to
+0.47s against a 5s poll interval, and endpoint validation from 0.88s to 1.88s
+because of the one expansion probe.
+
+The expansion-probe spacing is a precaution on published precedent, not a fix
+validated against a reproduction. The bench that produced this document had
+one unit and no expansion units, so whether the previous back-to-back probe
+ever actually missed a slaved unit is still unverified.
+
 ## Status response framing
 
 | Fact | Status |

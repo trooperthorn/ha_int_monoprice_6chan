@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from enum import StrEnum
-from typing import Any, TypeVar
+from time import monotonic
+from typing import Any, Final, TypeVar
 
 import serialx
 from homeassistant.core import HomeAssistant
@@ -15,6 +16,11 @@ from .api import MonopriceExtended
 from .serial import POWER_ON_BAUD_RATE, SUPPORTED_BAUD_RATES
 
 _T = TypeVar("_T")
+# Floor between consecutive RS-232 commands. pyxantech sets this on every
+# series it supports and enforces it with an explicit sleep, to stop the
+# amplifier timing out when commands arrive faster than it answers; its
+# README records the value moving from 400ms to 50ms.
+MIN_COMMAND_INTERVAL: Final = 0.05
 _COMMUNICATION_ERRORS = (
     serialx.SerialException,
     TimeoutError,
@@ -60,6 +66,7 @@ class MonopriceGateway:
         )
         self.failure_count = 0
         self.reconnect_count = 0
+        self._last_command_at = 0.0
 
     @property
     def current_baud_rate(self) -> int:
@@ -74,14 +81,30 @@ class MonopriceGateway:
         async with self._io_lock:
             if self._closing:
                 raise GatewayClosedError("Monoprice gateway is closing")
+            await self._async_hold_command_floor()
             try:
                 result = await self.hass.async_add_executor_job(function, *args)
             except _COMMUNICATION_ERRORS:
                 self.failure_count += 1
                 self.connection_state = ConnectionState.DISCONNECTED
                 raise
+            finally:
+                # Space from when this command finished, not when it started,
+                # so a slow command does not get a second delay stacked on it.
+                self._last_command_at = monotonic()
             self.connection_state = ConnectionState.CONNECTED
             return result
+
+    async def _async_hold_command_floor(self) -> None:
+        """Wait out any remainder of the minimum inter-command interval.
+
+        Serializing through the lock keeps commands from overlapping but lets
+        them run back to back, which is what the floor is for. Held inside the
+        lock so the wait is never skipped by a caller that took it first.
+        """
+        remaining = MIN_COMMAND_INTERVAL - (monotonic() - self._last_command_at)
+        if remaining > 0:
+            await asyncio.sleep(remaining)
 
     async def async_execute(self, method: str, *args: Any) -> Any:
         """Run an API method through the single serialized gateway."""

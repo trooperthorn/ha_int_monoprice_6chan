@@ -15,6 +15,12 @@ from pymonoprice import ZoneStatus
 SUPPORTED_BAUD_RATES: Final = (9600, 19200, 38400, 57600, 115200, 230400)
 POWER_ON_BAUD_RATE: Final = 9600
 VALIDATION_TIMEOUT: Final = 0.75
+# Room before each expansion-unit probe. A probe that times out is read as
+# "unit absent", so a unit that is merely slow to answer would lose its
+# entities until the next rediscovery. jnewland/mpr-6zhmaut-api spaces the
+# equivalent startup queries by a full second; this matches it rather than
+# leaning on the gateway's much smaller inter-command floor.
+EXPANSION_PROBE_SPACING: Final = 1.0
 _COM_PORT = re.compile(r"^COM\d+$", re.IGNORECASE)
 
 # A character device that exists but cannot be configured as a UART - a
@@ -105,8 +111,10 @@ def _detect_expansion_units(port: serialx.BaseSerial) -> tuple[int, ...]:
     units are numbered contiguously, so there is no unit 3 without a unit 2.
     """
     units = [1]
+    sleep(EXPANSION_PROBE_SPACING)
     if _probe_zone(port, 21):
         units.append(2)
+        sleep(EXPANSION_PROBE_SPACING)
         if _probe_zone(port, 31):
             units.append(3)
     return tuple(units)
