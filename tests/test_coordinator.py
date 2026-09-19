@@ -43,11 +43,13 @@ class FakeGateway:
     def __init__(self) -> None:
         self.last_known_baud = 9600
         self.last_detected_baud: int | None = None
+        self.proven_baud: int | None = None
+        self.failed_baud: int | None = None
         self.ensure_calls: list[int] = []
         self.present_units = {1}
         self.fail_with: Exception | None = None
 
-    async def async_ensure_link(self, target: int) -> int:
+    async def async_ensure_link(self, target: int, auto: bool = True) -> int:
         self.ensure_calls.append(target)
         self.last_known_baud = target
         return target
@@ -158,6 +160,48 @@ async def test_outage_timestamps_are_recorded(hass) -> None:
     assert coordinator.offline_since is None
     assert coordinator.last_offline_at == started, "kept after recovery"
     assert coordinator.outage_count == 1
+
+
+async def test_expansion_probe_outcomes_are_recorded(hass) -> None:
+    """A field report has to say what each probe did, not just what survived.
+
+    This path cannot be exercised here: the development hardware is one unit
+    with nothing chained to it. The record below is what a user with expansion
+    units sends back in a diagnostics download.
+    """
+    gateway = FakeGateway()
+    coordinator = _coordinator(hass, gateway)
+
+    await coordinator._async_discover_active_units()
+
+    assert coordinator.active_units == [1]
+    # Unit 2 was probed and did not answer; unit 3 was never probed because
+    # units are numbered contiguously.
+    assert coordinator.last_discovery == [
+        {
+            "unit": 2,
+            "probed": True,
+            "answered": False,
+            "reason": "reply did not parse as a zone status",
+            "seconds": coordinator.last_discovery[0]["seconds"],
+        }
+    ]
+
+
+async def test_a_present_expansion_unit_is_recorded_as_answering(hass) -> None:
+    """The success case records the zone that replied, for the same reason."""
+    gateway = FakeGateway()
+    gateway.present_units = {1, 2}
+    coordinator = _coordinator(hass, gateway)
+
+    await coordinator._async_discover_active_units()
+
+    assert coordinator.active_units == [1, 2]
+    unit_two = next(p for p in coordinator.last_discovery if p["unit"] == 2)
+    assert unit_two["answered"] is True
+    assert unit_two["zone"] == 21
+    # Unit 3 was probed too, since unit 2 answered.
+    assert any(p["unit"] == 3 for p in coordinator.last_discovery)
 
 
 async def test_first_update_runs_bounded_recovery(hass) -> None:

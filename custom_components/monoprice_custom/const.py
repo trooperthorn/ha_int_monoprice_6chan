@@ -33,6 +33,22 @@ CONF_SOURCE_5 = "source_5"
 CONF_SOURCE_6 = "source_6"
 CONF_BAUD_RATE = "baud_rate"
 
+# Whether the integration works its way up to the configured rate on its
+# own. The configured value is a ceiling, not a starting point: the
+# amplifier always powers on at 9600, and a rate the cabling cannot carry
+# cannot simply be undone, because the amplifier switches on receipt and is
+# then unreachable until it loses power. Climbing one step at a time, and
+# remembering what worked and what did not, is what keeps "set it to the
+# highest and see" from being a trap.
+CONF_AUTO_LINK_SPEED = "auto_link_speed"
+DEFAULT_AUTO_LINK_SPEED = True
+
+# Entry data, not options: these are learned from the hardware rather than
+# chosen by the user. The highest rate confirmed working on this cabling,
+# and the lowest rate that failed to confirm.
+CONF_PROVEN_BAUD = "proven_baud"
+CONF_FAILED_BAUD = "failed_baud"
+
 # How often to poll, in seconds. The Monoprice family sends nothing on its
 # own (see docs/design.md), so polling is the only way a keypad or
 # front-panel change reaches Home Assistant, and the right interval is a

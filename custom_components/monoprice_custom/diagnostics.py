@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 
 from .__init__ import MonopriceConfigEntry
 from .const import CONF_DEVICE_IDENTITY
+from .serial import EXPANSION_PROBE_SPACING
 
 TO_REDACT = {"unique_id", "port", CONF_DEVICE_IDENTITY}
 
@@ -43,6 +44,14 @@ async def async_get_config_entry_diagnostics(
             "current_baud": gateway.current_baud_rate,
             "target_baud": coordinator.target_baud_rate,
             "active_units": coordinator.active_units,
+            # Per-unit outcome of the last expansion probe. This path has never
+            # been exercised against expansion hardware, so a field report
+            # needs what each probe actually did, not just the surviving units.
+            "expansion_probes": coordinator.last_discovery,
+            "expansion_probe_spacing_seconds": EXPANSION_PROBE_SPACING,
+            "auto_link_speed": coordinator.auto_link_speed,
+            "proven_baud": gateway.proven_baud,
+            "failed_baud": gateway.failed_baud,
             "last_successful_poll": (
                 coordinator.last_successful_poll.isoformat()
                 if coordinator.last_successful_poll

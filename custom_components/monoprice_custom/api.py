@@ -185,7 +185,11 @@ class MonopriceExtended(Monoprice):
         pending = self._port.in_waiting
         if not pending:
             return ""
-        return self._port.read(pending).decode("ascii", errors="replace")
+        drained = self._port.read(pending).decode("ascii", errors="replace")
+        # Bytes arriving here after a command that should have been fully read
+        # are the signature of a framing mismatch, so they are worth seeing.
+        _LOGGER.debug("Drained %d trailing byte(s): %r", pending, drained)
+        return drained
 
     @synchronized
     def rename_source(self, index: int, name: str) -> None:

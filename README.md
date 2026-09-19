@@ -168,12 +168,42 @@ This integration exposes custom services for advanced automation workflows:
 > first, and you cannot damage anything by trying it.
 
 The amplifier powers on at **9600 baud** every time and keeps whatever rate it
-was last told to use only until it loses power. On the first poll after
-startup the integration negotiates up to the **target link speed** you have
-configured (**Settings → Devices & Services → Monoprice → Configure**, itself
-defaulting to 9600). A higher rate lowers per-command latency but is more
-sensitive to long or noisy RS-232 runs; if you see intermittent timeouts after
-raising it, step back down one notch.
+was last told to use only until it loses power. The setting you choose under
+**Settings → Devices & Services → Monoprice → Configure** is called
+**Preferred maximum link speed**, and the word *maximum* is the important one:
+it is the speed to work up to, not the speed the connection starts at.
+
+### Why it is a ceiling and not just a setting
+
+The amplifier changes speed the moment it receives the command and never
+acknowledges it. So if you pick a speed your cabling cannot carry, the
+amplifier switches anyway and is then unreachable, and **you cannot tell it to
+go back** because it can no longer understand you. The only way out is to
+remove its power for 30 seconds.
+
+That is why **Let the integration work up to it automatically** is on by
+default. With it enabled the integration:
+
+- raises the speed **one step at a time**, confirming each one before going
+  further, so a speed that does not work costs you one step rather than a dead
+  link;
+- **remembers the highest speed that worked** on your cabling and returns
+  straight to it after a power cycle, instead of climbing again;
+- **never retries a speed that failed**, so one bad experience is not repeated
+  every time the amplifier restarts;
+- if a switch is not confirmed, **goes looking for the amplifier** at every
+  supported speed before giving up, because an unconfirmed switch is often just
+  an unlucky reply rather than a dead link.
+
+Turn it off and the integration switches straight to the speed you picked, with
+the consequence above. The `set_baud_rate` service always goes directly to the
+speed you name, whatever this checkbox says, because naming a speed explicitly
+means you want that speed.
+
+A higher speed lowers per-command latency but is less tolerant of long or noisy
+RS-232 runs. The **Link speed** diagnostic sensor shows what the connection is
+actually running at, which will differ from your preferred maximum while it is
+still working its way up, or if it settled lower.
 
 ### Recovering the link by hand
 
@@ -264,6 +294,8 @@ alongside the source names and target link speed.
 
 | Option | Range | Default | What it does |
 | --- | --- | --- | --- |
+| **Preferred maximum link speed** | 9600-230400 | 9600 | The speed to work up to, not the one the connection starts at. See [Baud Rate & Latency](#-baud-rate--latency). |
+| **Let the integration work up to it automatically** | on/off | on | Climb one step at a time, remember what worked, never retry what failed. Turning it off switches straight to the chosen speed, which can strand the link until the amplifier is power cycled. |
 | **Poll interval** | 5-60 s | 5 s | How often every zone is re-read. The amplifier never reports changes on its own, so this is the only way a keypad or front-panel change reaches Home Assistant. Raise it to put less traffic on a shared or bridged line. This interval applies while the amplifier is answering; once it stops, retries back off automatically (5s, 10s, 20s ... up to 2 minutes) so a powered-off amplifier is not swept continuously, and reset to normal on the first success. Each zone has a diagnostic **Keypad status** sensor: if every zone reads `disconnected`, keypad presses are not something you need to catch and a longer interval costs you little (the front panel still changes state out of band). |
 | **Maximum volume** | 1-38 | 38 | Ceiling applied to every volume this integration sends, including master writes. Useful where the wire maximum is more than the speakers should take. |
 | **Volume on master power-on** | 0-38 | 0 (off) | When a master zone is switched on, force every zone it reaches to this volume first. Guards against six zones jumping to whatever the master was last set to. |
@@ -419,6 +451,65 @@ included, so it is safe to attach to an issue.
 Protocol-level detail, including which facts were verified against hardware and
 which come from other implementations, is in
 [`docs/protocol.md`](docs/protocol.md).
+
+---
+
+## 🐞 Reporting a problem
+
+Two attachments make almost any report actionable, and both are a couple of
+clicks from the integration's page at **Settings → Devices & Services →
+Monoprice → the three dots**.
+
+**Download diagnostics** gives a JSON file with the connection state, current
+and target link speed, which units are active and what each expansion probe
+did, the outage history including whether the last one looked like a power cut
+or a cable fault, and every zone's state. Your serial port path and device
+identity are redacted, and no raw serial content is included.
+
+**Enable debug logging**, reproduce the problem, then **Disable debug logging**
+— Home Assistant downloads the log for you at that point. Debug output covers
+every baud-rate probe and the speed decision taken from it, each expansion-unit
+probe with its timing and why a unit was ruled present or absent, the outage
+lifecycle, and any trailing bytes drained from the serial port, which are the
+signature of a framing problem.
+
+It also turns on `pymonoprice`'s own logging, which records every command sent
+and every reply received as whole frames, so the raw protocol exchange ends up
+in the log without you doing anything.
+
+`serialx`, the layer beneath it, is deliberately **not** included: it logs one
+line per byte read, which turns a single zone query into about thirty lines and
+an ordinary poll into a couple of hundred. The useful detail is already in the
+`pymonoprice` frames. If a maintainer ever needs the byte level they will ask
+you to add it by hand under **Settings → Devices & Services → ⋮ → Logger**, or
+in `configuration.yaml`:
+
+```yaml
+logger:
+  logs:
+    serialx: debug
+```
+
+Open the issue with the [bug report
+template](.github/ISSUE_TEMPLATE/bug_report.yml), which asks for both.
+
+### If you have expansion units, we would especially like to hear from you
+
+The development hardware is a **single 10761 with no expansion units**. Every
+code path dealing with a second or third chained amplifier is written from the
+protocol documentation and has never run against the hardware it exists for.
+
+There is a [dedicated template](.github/ISSUE_TEMPLATE/expansion_units.yml) for
+this, and **a report that it simply works is as useful as one that it does
+not**. The open questions are whether a chained unit is reliably detected or
+occasionally read as absent for answering slowly, whether the one-second
+spacing before each probe is enough, whether a unit appearing later is picked
+up without a restart, and whether master commands behave the same on units 2
+and 3.
+
+The diagnostics file answers most of that on its own:
+`connection.expansion_probes` records each probe, how long it took, and the
+reason a unit was ruled absent.
 
 ---
 

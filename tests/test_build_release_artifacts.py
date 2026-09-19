@@ -21,7 +21,9 @@ from scripts.build_release_artifacts import (
 from scripts.set_version import next_calver, parse_calver, set_version
 
 EXPECTED_VERSION = json.loads(
-    (ROOT / "custom_components/monoprice_custom/manifest.json").read_text(encoding="utf-8")
+    (ROOT / "custom_components/monoprice_custom/manifest.json").read_text(
+        encoding="utf-8"
+    )
 )["version"]
 
 
@@ -51,7 +53,13 @@ def test_repository_manifest_version_validates() -> None:
 def test_next_calver_uses_highest_sequence_for_release_date() -> None:
     assert (
         next_calver(
-            ["v2026.09.01.9", "v2026.09.02.1", "v2026.09.02.4", "v2026.09.02.00", "1.2.3"],
+            [
+                "v2026.09.01.9",
+                "v2026.09.02.1",
+                "v2026.09.02.4",
+                "v2026.09.02.00",
+                "1.2.3",
+            ],
             date(2026, 9, 2),
         )
         == "2026.09.02.5"

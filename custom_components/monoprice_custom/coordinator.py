@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from time import monotonic
+from typing import Any
 
 import serialx
 from homeassistant.config_entries import ConfigEntry
@@ -15,9 +16,13 @@ from pymonoprice import ZoneStatus
 
 from .api import MonopriceCommandError
 from .const import (
+    CONF_AUTO_LINK_SPEED,
     CONF_BAUD_RATE,
+    CONF_FAILED_BAUD,
     CONF_LAST_KNOWN_BAUD,
     CONF_POLL_INTERVAL,
+    CONF_PROVEN_BAUD,
+    DEFAULT_AUTO_LINK_SPEED,
     DEFAULT_POLL_INTERVAL,
     MAX_POLL_INTERVAL,
     MIN_POLL_INTERVAL,
@@ -90,6 +95,11 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
         self.last_outage_duration: timedelta | None = None
         self.last_outage_cause: str | None = None
         self.outage_count = 0
+        # Per-unit outcome of the last expansion probe, kept for the
+        # diagnostics download. This path cannot be exercised without
+        # expansion hardware, so a field report needs to say exactly what
+        # each probe did rather than only which units survived it.
+        self.last_discovery: list[dict[str, Any]] = []
         self.consecutive_failures = 0
         self.retry_delay: float | None = None
         self._baud_at_outage: int | None = None
@@ -103,6 +113,13 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
         )
 
     @property
+    def auto_link_speed(self) -> bool:
+        """Whether the integration works up to the configured rate itself."""
+        return bool(
+            self.entry.options.get(CONF_AUTO_LINK_SPEED, DEFAULT_AUTO_LINK_SPEED)
+        )
+
+    @property
     def target_baud_rate(self) -> int:
         """Return the configured target link speed."""
         configured = self.entry.options.get(CONF_BAUD_RATE, DEFAULT_TARGET_BAUD)
@@ -113,42 +130,119 @@ class MonopriceCoordinator(DataUpdateCoordinator[dict[int, ZoneStatus]]):
         )
 
     async def _async_ensure_link(self) -> None:
-        """Run bounded recovery and target-baud negotiation when required."""
+        """Run bounded recovery and link-speed negotiation when required."""
         if self._link_ready:
             return
         previous_baud = self.gateway.last_known_baud
-        detected_baud = await self.gateway.async_ensure_link(self.target_baud_rate)
+        # Seed what the hardware taught us last time, so a rate already proven
+        # is returned to directly and one that failed is never retried.
+        self.gateway.proven_baud = self.entry.data.get(CONF_PROVEN_BAUD)
+        self.gateway.failed_baud = self.entry.data.get(CONF_FAILED_BAUD)
+
+        detected_baud = await self.gateway.async_ensure_link(
+            self.target_baud_rate, self.auto_link_speed
+        )
         self._link_ready = True
         self._next_expansion_discovery = 0.0
 
-        if (
-            detected_baud != previous_baud
-            or self.entry.data.get(CONF_LAST_KNOWN_BAUD) != detected_baud
+        learned = {
+            CONF_LAST_KNOWN_BAUD: detected_baud,
+            CONF_PROVEN_BAUD: self.gateway.proven_baud,
+            CONF_FAILED_BAUD: self.gateway.failed_baud,
+        }
+        if detected_baud != previous_baud or any(
+            self.entry.data.get(key) != value for key, value in learned.items()
         ):
             self.hass.config_entries.async_update_entry(
-                self.entry,
-                data={**self.entry.data, CONF_LAST_KNOWN_BAUD: detected_baud},
+                self.entry, data={**self.entry.data, **learned}
             )
 
     async def _async_discover_active_units(self) -> None:
         """Rediscover expansion units at startup, after recovery, and periodically."""
         active = [1]
+        probe_log: list[dict[str, Any]] = []
         for unit in (2, 3):
             if unit == 3 and 2 not in active:
+                probe_log.append(
+                    {"unit": unit, "probed": False, "reason": "unit 2 absent"}
+                )
                 break
             # A timeout here means "absent", so give a slow unit room to answer
             # rather than dropping its entities until the next rediscovery.
             await asyncio.sleep(EXPANSION_PROBE_SPACING)
+            zone_id = unit * 10 + 1
+            started = monotonic()
             try:
-                status = await self.gateway.async_zone_status(unit * 10 + 1)
-            except _COMMUNICATION_ERRORS:
+                status = await self.gateway.async_zone_status(zone_id)
+            except _COMMUNICATION_ERRORS as err:
+                probe_log.append(
+                    {
+                        "unit": unit,
+                        "probed": True,
+                        "answered": False,
+                        "reason": f"{type(err).__name__}: {err}",
+                        "seconds": round(monotonic() - started, 2),
+                    }
+                )
+                _LOGGER.debug(
+                    "Expansion probe ?%d raised %s after %.2fs; treating unit %d "
+                    "as absent",
+                    zone_id,
+                    type(err).__name__,
+                    monotonic() - started,
+                    unit,
+                )
                 break
             if status is None:
+                probe_log.append(
+                    {
+                        "unit": unit,
+                        "probed": True,
+                        "answered": False,
+                        "reason": "reply did not parse as a zone status",
+                        "seconds": round(monotonic() - started, 2),
+                    }
+                )
+                _LOGGER.debug(
+                    "Expansion probe ?%d returned no parseable status after "
+                    "%.2fs; treating unit %d as absent",
+                    zone_id,
+                    monotonic() - started,
+                    unit,
+                )
                 break
+            probe_log.append(
+                {
+                    "unit": unit,
+                    "probed": True,
+                    "answered": True,
+                    "zone": getattr(status, "zone", None),
+                    "seconds": round(monotonic() - started, 2),
+                }
+            )
+            _LOGGER.debug(
+                "Expansion probe ?%d answered as zone %s in %.2fs; unit %d present",
+                zone_id,
+                getattr(status, "zone", None),
+                monotonic() - started,
+                unit,
+            )
             active.append(unit)
 
+        self.last_discovery = probe_log
+        _LOGGER.debug(
+            "Expansion discovery finished: units=%s probes=%s spacing=%ss",
+            active,
+            probe_log,
+            EXPANSION_PROBE_SPACING,
+        )
+
         if active != self.active_units:
-            _LOGGER.info("Detected Monoprice amplifier units: %s", active)
+            _LOGGER.info(
+                "Detected Monoprice amplifier units: %s (was %s)",
+                active,
+                self.active_units or "none yet",
+            )
             self.active_units = active
         self._next_expansion_discovery = (
             monotonic() + EXPANSION_DISCOVERY_INTERVAL.total_seconds()

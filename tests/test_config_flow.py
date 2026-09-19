@@ -16,6 +16,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.monoprice_custom.config_flow import PreparedEndpoint
 from custom_components.monoprice_custom.const import (
     CONF_ALL_ON_VOLUME,
+    CONF_AUTO_LINK_SPEED,
     CONF_BAUD_RATE,
     CONF_DEVICE_IDENTITY,
     CONF_IDENTITY_KIND,
@@ -27,6 +28,7 @@ from custom_components.monoprice_custom.const import (
     CONF_SOURCES,
     CONF_ZONE_NAMES,
     DEFAULT_ALL_ON_VOLUME,
+    DEFAULT_AUTO_LINK_SPEED,
     DEFAULT_MAX_VOLUME,
     DEFAULT_POLL_INTERVAL,
     DOMAIN,
@@ -90,6 +92,7 @@ async def test_rendering_and_selection_do_not_touch_serial(hass) -> None:
         CONF_ZONE_NAMES: {"11": "Kitchen"},
         # Behaviour options are always written, so an entry created before they
         # existed and one created now are read the same way.
+        CONF_AUTO_LINK_SPEED: DEFAULT_AUTO_LINK_SPEED,
         CONF_POLL_INTERVAL: DEFAULT_POLL_INTERVAL,
         CONF_MAX_VOLUME: DEFAULT_MAX_VOLUME,
         CONF_ALL_ON_VOLUME: DEFAULT_ALL_ON_VOLUME,
